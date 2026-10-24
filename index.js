@@ -11,7 +11,7 @@ const env = process.env.NODE_ENV || 'development';
 const cfg = {
   host: process.env.HOST || '127.0.0.1',
   port: Number(process.env.PORT) || 3000,
-  dbPath: path.resolve(process.env.DB_PATH || path.join(__dirname, '..', 'data', 'game.db')),
+  dbPath: path.resolve(process.env.DB_PATH || path.join(__dirname, 'data', 'game.db')),
   sessionDays: Number(process.env.SESSION_DAYS) || 7,
   secureCookies: process.env.COOKIE_SECURE ? process.env.COOKIE_SECURE === 'true' : env === 'production',
   trustProxy: Number(process.env.TRUST_PROXY) || 0
@@ -140,7 +140,10 @@ async function main() {
   app.use('/api', api);
 
   /* ---------- Статические файлы клиента ---------- */
-  app.use(express.static(path.join(__dirname, '..', 'public'), { dotfiles: 'ignore' }));
+  app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
+  for (const file of ['style.css', 'script.js']) {
+    app.get(`/${file}`, (req, res) => res.sendFile(path.join(__dirname, file)));
+  }
 
   app.use((err, req, res, next) => {
     if (err.type === 'entity.parse.failed') return res.status(400).json({ error: 'Некорректный JSON' });
