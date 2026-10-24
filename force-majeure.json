@@ -1,0 +1,170 @@
+[
+  {
+    "id": "investor_report",
+    "type": "investor",
+    "title": "Инвестор требует отчёт",
+    "description": "Инвестор хочет увидеть прогресс уже сегодня.",
+    "weight": 3,
+    "conditions": {
+      "minEmployees": 1
+    },
+    "choices": [
+      {
+        "id": "prepare",
+        "label": "Подготовить отчёт",
+        "effects": {
+          "money": -250,
+          "rep": 4
+        }
+      },
+      {
+        "id": "delay",
+        "label": "Попросить неделю",
+        "effects": {
+          "rep": -5
+        }
+      }
+    ]
+  },
+  {
+    "id": "investor_terms",
+    "type": "investor",
+    "title": "Новые условия финансирования",
+    "description": "Инвестор предлагает деньги в обмен на большее влияние.",
+    "weight": 2,
+    "conditions": {
+      "minEmployees": 1
+    },
+    "choices": [
+      {
+        "id": "accept",
+        "label": "Согласиться",
+        "effects": {
+          "money": 700,
+          "rep": -3
+        }
+      },
+      {
+        "id": "refuse",
+        "label": "Отказаться",
+        "effects": {
+          "rep": 2,
+          "money": -150
+        }
+      }
+    ]
+  },
+  {
+    "id": "team_conflict",
+    "type": "employees",
+    "title": "Конфликт в команде",
+    "description": "Два сотрудника спорят о приоритетах.",
+    "weight": 3,
+    "conditions": {
+      "minEmployees": 1
+    },
+    "choices": [
+      {
+        "id": "mediate",
+        "label": "Провести встречу",
+        "effects": {
+          "money": -100,
+          "rep": 3,
+          "employeeMood": 8
+        }
+      },
+      {
+        "id": "ignore",
+        "label": "Не вмешиваться",
+        "effects": {
+          "rep": -4,
+          "employeeMood": -8
+        }
+      }
+    ]
+  },
+  {
+    "id": "team_raise",
+    "type": "employees",
+    "title": "Просьба о повышении",
+    "description": "Команда просит пересмотреть оплату.",
+    "weight": 2,
+    "conditions": {
+      "minEmployees": 1
+    },
+    "choices": [
+      {
+        "id": "raise",
+        "label": "Повысить мотивацию бонусом",
+        "effects": {
+          "money": -300,
+          "employeeMood": 10
+        }
+      },
+      {
+        "id": "deny",
+        "label": "Отказать",
+        "effects": {
+          "rep": -3,
+          "employeeMood": -10
+        }
+      }
+    ]
+  },
+  {
+    "id": "office_ac",
+    "type": "office",
+    "title": "Сломался кондиционер",
+    "description": "В офисе невозможно работать из-за жары.",
+    "weight": 3,
+    "conditions": {
+      "minEmployees": 1
+    },
+    "choices": [
+      {
+        "id": "repair",
+        "label": "Срочный ремонт",
+        "effects": {
+          "money": -220,
+          "employeeMood": 4
+        }
+      },
+      {
+        "id": "wait",
+        "label": "Потерпеть",
+        "effects": {
+          "rep": -2,
+          "employeeMood": -6
+        }
+      }
+    ]
+  },
+  {
+    "id": "office_rent",
+    "type": "office",
+    "title": "Арендодатель повышает цену",
+    "description": "Владелец помещения уведомил о дополнительных расходах.",
+    "weight": 2,
+    "conditions": {
+      "minEmployees": 1
+    },
+    "choices": [
+      {
+        "id": "pay",
+        "label": "Оплатить условия",
+        "effects": {
+          "money": -400,
+          "rep": 1
+        }
+      },
+      {
+        "id": "negotiate",
+        "label": "Торговаться",
+        "effects": {
+          "money": -100,
+          "rep": -2
+        }
+      }
+    ]
+  }
+]

@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Стартап-тайкун</title>
+<link rel="stylesheet" href="style.css?v=compact-ui-1">
+</head>
+<body>
+<div id="authView" hidden>
+  <div class="authbox card">
+    <h1>Стартап-тайкун</h1>
+    <p class="mute">Войдите или создайте аккаунт. Нужны только имя пользователя и пароль.</p>
+    <div class="tabs">
+      <button class="btn" type="button" id="tabLogin" data-tab="login">Вход</button>
+      <button class="btn sec" type="button" id="tabRegister" data-tab="register">Регистрация</button>
+    </div>
+    <form id="formLogin" novalidate>
+      <label>Имя пользователя<input name="username" autocomplete="username" maxlength="20" autocapitalize="none" spellcheck="false" required></label>
+      <label>Пароль<input name="password" type="password" autocomplete="current-password" maxlength="128" required></label>
+      <button class="btn" type="submit">Войти</button>
+    </form>
+    <form id="formRegister" hidden novalidate>
+      <label>Имя пользователя (3–20 символов: латиница, цифры, _)<input name="username" autocomplete="username" maxlength="20" autocapitalize="none" spellcheck="false" required></label>
+      <label>Пароль (от 8 символов)<input name="password" type="password" autocomplete="new-password" maxlength="128" required></label>
+      <label>Повторите пароль<input name="password2" type="password" autocomplete="new-password" maxlength="128" required></label>
+      <button class="btn" type="submit">Создать аккаунт</button>
+    </form>
+    <p id="authMsg" class="authmsg" role="alert"></p>
+  </div>
+</div>
+
+<div id="gameView" hidden>
+<div id="difficultySetup" class="difficulty-screen" hidden role="dialog" aria-modal="true" aria-labelledby="difficultyTitle">
+  <div class="difficulty-card">
+    <p class="difficulty-kicker">STARTUP TYCOON / НОВАЯ КАМПАНИЯ</p>
+    <h2 id="difficultyTitle">Выбери сложность</h2>
+    <p class="mute">На хардкоре придётся следить за бюджетом, усталостью команды и тем, какие задачи вы берёте.</p>
+    <div class="difficulty-options">
+      <button class="difficulty-option" type="button" data-act="diff-select" data-v="easy">
+        <span class="diff-emoji">🌱</span><b>Лёгкий</b><small>Для знакомства с игрой</small><span>Работа ×1,20 · проекты ×0,80</span>
+      </button>
+      <button class="difficulty-option selected" type="button" data-act="diff-select" data-v="medium">
+        <span class="diff-emoji">⚖️</span><b>Средний</b><small>Сбалансированный режим</small><span>Работа ×1,00 · проекты ×1,00</span>
+      </button>
+      <button class="difficulty-option" type="button" data-act="diff-select" data-v="hardcore">
+        <span class="diff-emoji">🔥</span><b>Хардкор</b><small>Каждый день на счету</small><span>Работа ×0,75 · проекты ×1,50</span>
+      </button>
+    </div>
+    <p id="difficultyDetails" class="difficulty-details" aria-live="polite"></p>
+    <div class="difficulty-actions">
+      <button class="btn" type="button" data-act="start-difficulty">Начать игру</button>
+      <button class="btn sec" type="button" data-act="cancel-difficulty" id="cancelDifficulty" hidden>Вернуться в игру</button>
+    </div>
+  </div>
+</div>
+<header id="top">
+  <a class="brand" id="brand" href="#" aria-label="Вернуться в офис" data-ui="close"><span class="brand-mark" aria-hidden="true">S<span>·</span></span><span class="brand-name">STARTUP<span>TYCOON</span></span></a>
+  <div class="stats" aria-label="Показатели компании">
+    <button class="stat" type="button" data-ui="company"><span class="lbl">Деньги</span><b id="sMoney">$0</b></button>
+    <button class="stat" type="button" data-ui="company"><span class="lbl">Клиенты</span><b id="sCust">0</b></button>
+    <button class="stat" type="button" data-ui="company"><span class="lbl">Репутация</span><b id="sRep">0</b></button>
+    <button class="stat" type="button" data-ui="company"><span class="lbl">Продукт</span><b id="sProd">0%</b></button>
+  </div>
+  <div class="time-controls">
+    <span id="sTime" class="time-readout">День 1, 09:00</span>
+    <button class="btn sec" type="button" data-act="pause" id="bPause">Пауза</button>
+    <button class="btn sec icon-btn" type="button" data-ui="speed" id="speedButton" aria-label="Изменить скорость игры">1×</button>
+    <button class="icon-btn save-indicator" type="button" id="saveIndicator" data-ui="notices" aria-label="Состояние сохранения" title="Состояние сохранения"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18h10a4 4 0 0 0 .6-8A6 6 0 0 0 6 8.5 4.8 4.8 0 0 0 7 18Z"/><path d="m9 12 2 2 4-4"/></svg></button>
+  </div>
+</header>
+<div id="accountData" hidden><span id="userName"></span><span id="saveStatus" aria-live="polite"></span></div>
+<nav id="gameNav" class="game-nav" aria-label="Разделы игры">
+  <button type="button" class="nav-button" data-ui="panel" data-value="emp" aria-controls="panelShell" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3 20v-2a6 6 0 0 1 12 0v2M16 5a3 3 0 0 1 0 6m2 3a5 5 0 0 1 3 4v2"/></svg><span>Команда</span></button>
+  <button type="button" class="nav-button" data-ui="panel" data-value="tasks" aria-controls="panelShell" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V2h6v2M9 10h6M9 14h6M9 18h3"/></svg><span>Задачи</span></button>
+  <button type="button" class="nav-button" data-ui="panel" data-value="hire" aria-controls="panelShell" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="7" r="3"/><path d="M3 20v-2a6 6 0 0 1 12 0v2M19 8v8M15 12h8"/></svg><span>Найм</span></button>
+  <button type="button" class="nav-button" data-ui="panel" data-value="log" aria-controls="panelShell" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h14v18H5zM9 7h6M9 11h6M9 15h6"/></svg><span>Журнал</span><i class="nav-dot" hidden></i></button>
+  <button type="button" class="nav-button" data-ui="panel" data-value="menu" aria-controls="panelShell" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg><span>Меню</span></button>
+</nav>
+<main id="workspace" class="workspace">
+  <section id="officeWrap" class="office-wrap" aria-label="Офис">
+    <div id="officeToolbar" class="office-toolbar">
+      <div class="office-pages">
+        <button type="button" class="icon-btn" data-act="officePrev" aria-label="Предыдущая комната">‹</button>
+        <span id="officeRoom">Комната 1 / 1</span>
+        <button type="button" class="icon-btn" data-act="officeNext" aria-label="Следующая комната">›</button>
+      </div>
+      <span id="officeOccupancy" class="office-occupancy">0 / 4</span>
+      <button type="button" class="btn sec" id="expandButton" data-act="expand" title="Расширить офис">+2 места</button>
+    </div>
+    <div id="office"><div class="office-scene"></div></div>
+    <p id="officeHint" class="office-hint">Нажмите на персонажа, чтобы управлять им</p>
+  </section>
+  <aside id="panelShell" class="panel-shell" aria-labelledby="panelTitle" hidden>
+    <header class="panel-header"><h2 id="panelTitle" tabindex="-1">Команда</h2><div id="panelTools" class="panel-tools" hidden></div><button type="button" class="icon-btn panel-close" data-ui="close" aria-label="Закрыть раздел"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></header>
+    <div id="panelTabs" class="panel-tabs" hidden></div>
+    <div id="panelBody" class="panel-body"><div id="panelContent" class="panel-content"></div></div>
+    <div id="panelFooter" class="panel-footer">
+      <div id="panelPager" class="panel-pager" hidden></div>
+      <div id="panelActions" class="panel-actions" hidden></div>
+    </div>
+  </aside>
+</main>
+</div>
+
+<div id="forceMajeureModal" class="fm-backdrop" hidden role="dialog" aria-modal="true" aria-labelledby="fmTitle">
+  <section class="fm-modal">
+    <div class="fm-kicker"><span id="fmIcon">⚠️</span> <span id="fmType">Форс-мажор</span></div>
+    <h2 id="fmTitle"></h2><p id="fmDescription"></p>
+    <div id="fmChoices" class="fm-choices"></div>
+  </section>
+</div>
+<script src="employee-config.js?v=compact-ui-1"></script>
+<script src="force-majeure.js?v=compact-ui-1"></script>
+<script src="name-generator.js?v=compact-ui-1"></script>
+<script src="character-art.js?v=compact-ui-1"></script>
+<script src="office-dialogue.js?v=compact-ui-1"></script>
+<script src="speech-system.js?v=compact-ui-1"></script>
+<script src="overlay-ui.js?v=compact-ui-1"></script>
+<script src="compact-ui.js?v=compact-ui-1"></script>
+<script src="script.js?v=compact-ui-1"></script>
+</body>
+</html>
