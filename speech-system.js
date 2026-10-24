@@ -40,6 +40,9 @@
     // Здесь находятся частота реплик и параметры очереди; тексты/вероятности категорий — в office-dialogue.js.
     const state = () => deps.getState();
     const currentTick = () => deps.gameTickIndex();
+    const taskWork = task => deps.getTaskWork ? deps.getTaskWork(task) : task.work;
+    const visibleEmployees = () => (state()?.employees || [])
+      .filter(person => !deps.isEmployeeVisible || deps.isEmployeeVisible(person));
     const draw = () => {
       if (deps.isVisible()) deps.renderOffice();
     };
@@ -69,7 +72,7 @@
     function makeSnapshot(person) {
       const tasks = deps.getConfig().tasks;
       const task = person.task && tasks[person.task] ? tasks[person.task] : null;
-      const progressPct = task ? Math.max(0, Math.min(100, person.progress / task.work * 100)) : 0;
+      const progressPct = task ? Math.max(0, Math.min(100, person.progress / taskWork(task) * 100)) : 0;
       return {
         energy: person.energy,
         mood: person.mood,
@@ -120,7 +123,7 @@
         if (displayTimer !== null) clearTimeout(displayTimer);
         displayTimer = null;
         active = null;
-        startNext();
+        showNext();
       }
     }
 
@@ -128,7 +131,7 @@
       const s = state();
       if (!s) return {};
       const burn = Math.max(1, deps.dailyCosts());
-      const progress = person && task ? Math.min(100, Math.floor(person.progress / task.work * 100)) : 0;
+      const progress = person && task ? Math.min(100, Math.floor(person.progress / taskWork(task) * 100)) : 0;
       const roles = deps.getConfig().roles;
       return {
         employeeId: person && Number.isSafeInteger(person.id) ? person.id : null,
@@ -148,15 +151,15 @@
     }
 
     function speakerForPriority(priority = 1) {
-      const s = state();
-      if (!s || !s.employees.length) return null;
+      const people = visibleEmployees();
+      if (!people.length) return null;
       const tick = currentTick();
-      const eligible = s.employees.filter(person => {
+      const eligible = people.filter(person => {
         const previous = lastSpoken.get(person.id);
         return !previous || previous.tick !== tick || priority > previous.priority;
       });
-      if (!eligible.length) return deps.getSelected() || deps.pick(s.employees);
       const selected = deps.getSelected();
+      if (!eligible.length) return people.includes(selected) ? selected : deps.pick(people);
       return selected && eligible.includes(selected) ? selected : deps.pick(eligible);
     }
 
@@ -167,7 +170,21 @@
 
     function isEmployeeAvailable(employeeId) {
       const s = state();
-      return !!(s && s.employees.some(person => person.id === employeeId));
+      return !!(s && visibleEmployees().some(person => person.id === employeeId));
+    }
+
+    function syncVisibility() {
+      queue = queue.filter(item => isEmployeeAvailable(item.employeeId));
+      if (active && !isEmployeeAvailable(active.employeeId)) {
+        if (displayTimer !== null) clearTimeout(displayTimer);
+        displayTimer = null;
+        active = null;
+      }
+      if (!active) {
+        if (gapTimer !== null) clearTimeout(gapTimer);
+        gapTimer = null;
+        showNext();
+      }
     }
 
     function showNext() {
@@ -192,7 +209,7 @@
     }
 
     function enqueue(person, text, options = {}) {
-      if (!person || !Number.isSafeInteger(person.id) || !text || !isEmployeeAvailable(person.id)) return false;
+      if (!deps.isVisible() || !person || !Number.isSafeInteger(person.id) || !text || !isEmployeeAvailable(person.id)) return false;
       const now = Date.now();
       const priority = Number.isFinite(options.priority) ? options.priority : 1;
       const item = {
@@ -268,7 +285,7 @@
 
       const target = Number.isSafeInteger(values.employeeId)
         ? s.employees.find(person => person.id === values.employeeId)
-        : (deps.getSelected() || (s.employees.length ? deps.pick(s.employees) : null));
+        : speakerForPriority();
 
       if (tick - lastCategory < rule.cooldown) {
         if (forced) showCharacterLine(target, category, values, { force: true });
@@ -360,7 +377,7 @@
 
       // Случайная офисная болтовня редкая и не запускается, когда есть важная реакция.
       if (!employeeCandidates.length && s.employees.length && Math.random() < CONFIG.ambientChance && queue.length === 0 && !active) {
-        const eligible = s.employees.filter(person => {
+        const eligible = visibleEmployees().filter(person => {
           const meta = lastSpoken.get(person.id);
           return !meta || tick - meta.tick >= CONFIG.employeeCooldownTicks;
         });
@@ -379,7 +396,9 @@
     function resume() {
       const s = state();
       if (!s || !deps.isVisible() || !s.employees.length) return;
-      const person = deps.getSelected() || s.employees[0];
+      const people = visibleEmployees();
+      const person = people.includes(deps.getSelected()) ? deps.getSelected() : people[0];
+      if (!person) return;
       const category = person.status === 'rest' ? 'rest'
         : person.mood < 35 ? 'lowMood'
           : person.energy < 35 ? 'energyLow'
@@ -400,6 +419,7 @@
       clear,
       syncEmployee,
       removeEmployee,
+      syncVisibility,
       context,
       showCharacterLine,
       speakerForPriority,

@@ -1,4 +1,5 @@
 'use strict';
+const { resolveIdentity } = require('./name-generator');
 /* Серверная проверка сохранения: структура и допустимые диапазоны.
    Сервер не пересчитывает игру, он лишь не даёт сохранить мусор и слишком большие данные. */
 
@@ -18,8 +19,16 @@ const list = (a, max) => (Array.isArray(a) && a.length <= max ? a : fail());
 function person(p) {
   if (!p || typeof p !== 'object' || !ROLES.has(p.role) || !STATUSES.has(p.status)) fail();
   if (p.task !== null && !TASKS.has(p.task)) fail();
+  const id = int(p.id, 0, 1e9);
+  if (p.gender != null && p.gender !== 'male' && p.gender !== 'female') fail();
+  if (p.appearance != null) {
+    if (typeof p.appearance !== 'object' || Array.isArray(p.appearance)) fail();
+    int(p.appearance.hair, 0, 63);
+    int(p.appearance.cloth, 0, 3);
+    if (p.appearance.sprite !== undefined) int(p.appearance.sprite, 0, 19);
+  }
   return {
-    id: int(p.id, 0, 1e9),
+    id, ...resolveIdentity(p),
     // Пустое/отсутствующее имя разрешено для старых сохранений: клиент назначит его без сброса прогресса.
     name: typeof p.name === 'string' ? p.name.slice(0, 32) : '',
     role: p.role, spec: str(p.spec, 24),

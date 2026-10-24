@@ -48,8 +48,7 @@ const C = {
   }
 };
 
-/* Сложность фиксируется на кампанию. forceMajeureFrequency — точка интеграции
-   для будущей системы форс-мажоров; сама система событий пока не запускается. */
+/* Сложность фиксируется на кампанию и влияет на работу, проекты и частоту форс-мажоров. */
 const DIFFICULTIES = Object.freeze({
   easy: Object.freeze({ name: 'Лёгкий', employeeSpeed: 1.20, projectComplexity: 0.80, forceMajeureFrequency: 0.5,
     goal: Object.freeze({ customers: 80, reputation: 30 }), description: 'Сотрудники работают на 20% быстрее, проекты требуют на 20% меньше работы. Цель: 80 клиентов и 30 репутации.' }),
@@ -65,13 +64,15 @@ const KEY = 'startupTycoon.save.v1';   // ключ СТАРОГО локальн
    3. СОСТОЯНИЕ ИГРЫ
    ===================================================================== */
 let S;                 // текущее состояние (сохраняется целиком)
-let timer = null, paused = false, tickCount = 0;
+let timer = null, paused = false, tickCount = 0, officePage = 0;
+let fmPausedBefore = false, fmPauseActive = false;
 let pendingDifficulty = 'medium', difficultyResetMode = false;
 // Система реплик вынесена в speech-system.js; здесь остаётся только интеграция с игрой.
 
 const num = (v, def, min, max) => { const n = Number(v); return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : def; };
 const rnd = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
 const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+const portrait = (person, mode) => CharacterArt.portrait(person, mode);
 const fmt = n => '$' + Math.floor(n).toLocaleString('ru-RU');
 const $ = id => document.getElementById(id);
 const sel = () => S.employees.find(e => e.id === S.selected) || null;
@@ -114,6 +115,8 @@ const Speech = StartupSpeechSystem.create({
   getState: () => S,
   getConfig: () => C,
   getSelected: () => sel(),
+  getTaskWork: taskWork,
+  isEmployeeVisible: person => Math.floor(person.desk / 4) === officePage,
   gameTickIndex,
   dailyCosts,
   formatMoney: fmt,
@@ -121,7 +124,7 @@ const Speech = StartupSpeechSystem.create({
   dialogue: StartupOfficeDialogue,
   log: (text, type) => log(text, type),
   markDirty: () => { if (API) API.dirty = true; },
-  isVisible: () => !!(S && $('gameView') && !$('gameView').hidden),
+  isVisible: () => !!(S && !$('gameView').hidden && $('difficultySetup').hidden && $('forceMajeureModal').hidden),
   renderOffice: () => renderOffice()
 });
 
@@ -158,7 +161,10 @@ function genCandidate() {
   const role = pick(Object.keys(C.roles)), R = C.roles[role];
   const skill = Math.min(8, 1 + rnd(0, 2 + Math.floor(S.rep / 15)));
   const taken = new Set([...S.employees, ...S.candidates].map(p => p.name).filter(Boolean));
-  return { id: S.nextId++, name: StartupNameGenerator.generate(taken), role, spec: pick(R.specs), skill,
+  const gender = pick(['male', 'female']);
+  const spriteIndex = pick(CharacterArt.spriteIndices[gender]);
+  const appearance = { hair: Math.floor(spriteIndex / 3), cloth: spriteIndex % 3, sprite: spriteIndex };
+  return { id: S.nextId++, gender, appearance, name: StartupNameGenerator.generate(taken, gender), role, spec: pick(R.specs), skill,
            salary: R.baseSalary + skill * C.salaryPerSkill, speed: +(0.8 + Math.random() * 0.4).toFixed(2),
            energy: 100, mood: rnd(60, 90), task: null, progress: 0, status: 'idle', desk: -1 };
 }
@@ -285,9 +291,41 @@ function checkGoal() {
   }
 }
 
+function resetForceMajeure() {
+  ForceMajeureSystem.reset();
+  if (fmPauseActive) paused = fmPausedBefore;
+  fmPauseActive = false;
+  document.body.classList.remove('fm-open');
+}
+
+function forceMajeureDeps() {
+  return {
+    getState: () => S,
+    getFrequency: () => difficultyConfig().forceMajeureFrequency,
+    pause: value => {
+      if (value && !fmPauseActive) {
+        fmPausedBefore = paused; fmPauseActive = true; paused = true;
+        document.body.classList.add('fm-open');
+      } else if (!value && fmPauseActive) {
+        paused = fmPausedBefore; fmPauseActive = false;
+        document.body.classList.remove('fm-open');
+      }
+      restartTimer();
+    },
+    render: () => { if (S) render(); },
+    onApplied: (event, choice) => {
+      API.dirty = true;
+      log(`Форс-мажор «${event.title}»: ${choice.label}`, 'warn');
+      scheduleSave();
+    }
+  };
+}
+
 function tick() {
-  if (!S) return;
+  if (!S || paused || !$('difficultySetup').hidden) return;
   try {
+    ForceMajeureSystem.onTick(S, forceMajeureDeps());
+    if (paused) return;
     S.hour++;
     if (S.hour >= 24) { S.hour = 0; S.day++; payDay(); }
     S.employees.forEach(workEmployee);
@@ -306,7 +344,7 @@ function tick() {
 
 function restartTimer() {
   clearInterval(timer); timer = null;
-  if (!paused) timer = setInterval(tick, C.tickMs / S.speed);
+  if (S && !paused && $('difficultySetup').hidden) timer = setInterval(tick, C.tickMs / S.speed);
 }
 
 function hire(id) {
@@ -321,10 +359,13 @@ function hire(id) {
   c.desk = 0; while (used.has(c.desk)) c.desk++;
   S.employees.push(c);
   S.selected = c.id;
+  officePage = Math.floor(c.desk / 4);
+  Speech.syncVisibility();
   syncEmployeeReaction(c);
   if (!flavor('hire', flavorContext(c), { force: true, type: 'good' })) {
     log(`Нанят сотрудник: ${c.name} (${C.roles[c.role].name}, ${c.spec})`, 'good');
   }
+  ForceMajeureSystem.onHire(S, forceMajeureDeps());
 }
 
 function assign(taskId) {
@@ -341,8 +382,13 @@ function assign(taskId) {
 /** Обработчик всех кнопок (делегирование событий по data-act). */
 function act(ev) {
   const el = ev.target.closest && ev.target.closest('[data-act]');
-  if (!el || !S || $('gameView').hidden) return;
+  if (!el || !S || $('gameView').hidden || !$('forceMajeureModal').hidden) return;
   const a = el.dataset.act, e = sel();
+  if (a === 'officePrev' || a === 'officeNext') {
+    officePage = Math.max(0, Math.min(Math.ceil(S.desks / 4) - 1, officePage + (a === 'officeNext' ? 1 : -1)));
+    Speech.syncVisibility();
+    render(); return;
+  }
   switch (a) {
     case 'select': if (S.employees.some(x => x.id === +el.dataset.id)) S.selected = +el.dataset.id; break;
     case 'assign': assign(el.dataset.task); break;
@@ -404,11 +450,14 @@ function act(ev) {
    ===================================================================== */
 function cleanPerson(r) {
   if (!r || typeof r !== 'object' || !C.roles[r.role]) return null;
+  const id = Math.floor(num(r.id, 0, 0, 1e9));
+  const name = String(typeof r.name === 'string' ? r.name : '').slice(0, 32);
+  const identity = StartupNameGenerator.resolveIdentity({ ...r, id, name });
   const task = C.tasks[r.task] ? r.task : null;
   let status = ['work', 'rest', 'idle'].includes(r.status) ? r.status : 'idle';
   if (status === 'work' && !task) status = 'idle';
   if (status === 'idle' && task) status = 'work';
-  return { id: Math.floor(num(r.id, 0, 0, 1e9)), name: String(typeof r.name === 'string' ? r.name : '').slice(0, 32), role: r.role,
+  return { id, name, ...identity, role: r.role,
            spec: String(r.spec || '').slice(0, 24), skill: num(r.skill, 1, 1, 10), salary: Math.floor(num(r.salary, 100, 0, 1e6)),
            speed: num(r.speed, 1, 0.5, 2), energy: num(r.energy, 100, 0, 100), mood: num(r.mood, 70, 0, 100),
            task, progress: num(r.progress, 0, 0, 1e4), status, desk: Math.floor(num(r.desk, -1, -1, 99)) };
@@ -432,10 +481,15 @@ function sanitize(r) {
   // Старые сохранения сохраняют имеющиеся имена; недостающие получают новые уникальные имена.
   const people = [...s.employees, ...s.candidates];
   const usedNames = new Set(people.map(p => p.name.trim()).filter(n => n && n !== 'Без имени'));
-  let migratedState = !r.flavor || !DIFFICULTIES[r.difficulty];
+  const originalPeople = [...(Array.isArray(r.employees) ? r.employees : []), ...(Array.isArray(r.candidates) ? r.candidates : [])];
+  let migratedState = !r.flavor || !DIFFICULTIES[r.difficulty] || people.some(person => {
+    const original = originalPeople.find(p => p && p.id === person.id);
+    return !original || original.gender !== person.gender
+      || JSON.stringify(original.appearance) !== JSON.stringify(person.appearance);
+  });
   for (const person of people) {
     if (!person.name || person.name === 'Без имени') {
-      person.name = StartupNameGenerator.generate(usedNames);
+      person.name = StartupNameGenerator.generate(usedNames, person.gender);
       usedNames.add(person.name);
       migratedState = true;
     }
@@ -515,14 +569,23 @@ async function loadFromServer() {
     if (status !== 200) return 'error';
     if (!data.save) { API.rev = 0; return 'none'; }
     API.rev = Number(data.save.rev) || 0;
-    try { S = sanitize(data.save.state); seedReactionState(); return 'ok'; } catch (err) { return 'bad'; }
+    try {
+      API.dirty = false;
+      const loaded = sanitize(data.save.state);
+      resetForceMajeure();
+      S = loaded;
+      const selected = sel();
+      officePage = selected ? Math.floor(selected.desk / 4) : 0;
+      seedReactionState();
+      return 'ok';
+    } catch (err) { return 'bad'; }
   } catch (err) { return 'error'; }
 }
 
 /** Кнопка «Загрузить». */
 async function loadGame() {
   const r = await loadFromServer();
-  if (r === 'ok') { API.hold = null; API.dirty = false; tickCount = 0; restartTimer(); log('Игра загружена с сервера', 'good'); setStatus('Загружено в ' + hhmm()); showResumeBubble(); }
+  if (r === 'ok') { API.hold = null; if (API.dirty) scheduleSave(); tickCount = 0; restartTimer(); log('Игра загружена с сервера', 'good'); setStatus('Загружено в ' + hhmm()); showResumeBubble(); }
   else if (r === 'none') log('На сервере пока нет сохранения', 'bad');
   else if (r === 'bad') log('Сохранение на сервере повреждено, загрузка отменена', 'bad');
   else if (r === 'error') log('Не удалось связаться с сервером', 'bad');
@@ -535,7 +598,9 @@ async function importLocal() {
   try { local = sanitize(JSON.parse(legacyRaw())); }
   catch (err) { API.legacy = false; log('Локальное сохранение повреждено, импорт невозможен', 'bad'); return; }
   if ((S.day > 1 || S.employees.length) && !confirm('В аккаунте уже есть прогресс. Заменить его локальным сохранением из этого браузера?')) return;
-  S = local; API.legacy = false; tickCount = 0; seedReactionState();
+  resetForceMajeure();
+  S = local; officePage = sel() ? Math.floor(sel().desk / 4) : 0;
+  API.legacy = false; tickCount = 0; seedReactionState();
   log('Локальное сохранение импортировано', 'good'); render();
   if (await pushSave({ force: true, silent: true })) { try { localStorage.removeItem(KEY); } catch (err) { /* недоступно */ } }
 }
@@ -543,10 +608,12 @@ async function importLocal() {
 /* ---- Вход, выход, регистрация ---- */
 function showAuth(msg) {
   clearInterval(timer); timer = null; clearTimeout(API.saveTimer);
+  $('difficultySetup').hidden = true;
+  resetForceMajeure();
   $('gameView').hidden = true; $('authView').hidden = false; $('authMsg').textContent = msg || '';
 }
 function showGame() { $('authView').hidden = true; $('gameView').hidden = false; $('userName').textContent = API.user; }
-function resetSession() { Object.assign(API, { user: null, csrf: null, rev: 0, hold: null, legacy: false, dirty: false, queued: null }); S = null; }
+function resetSession() { Object.assign(API, { user: null, csrf: null, rev: 0, hold: null, legacy: false, dirty: false, queued: null }); resetForceMajeure(); S = null; officePage = 0; Speech.clear(); }
 function sessionExpired() { resetSession(); showAuth('Сессия истекла. Войдите снова.'); }
 
 /** Вход в игру после авторизации: грузим сохранение с сервера. */
@@ -568,6 +635,7 @@ async function enterGame() {
   else if (r === 'error') { API.hold = 'noload'; log('Не удалось загрузить сохранение. Автосохранение выключено, чтобы не затереть прогресс.', 'bad'); }
   API.legacy = !!legacyRaw() && API.hold !== 'noload';
   restartTimer(); render(); showResumeBubble();
+  if (API.dirty) scheduleSave();
 }
 
 async function logout() {
@@ -619,6 +687,9 @@ async function boot() {
 }
 
 function fresh(difficulty = 'medium') {
+  clearInterval(timer); timer = null;
+  resetForceMajeure();
+  officePage = 0;
   S = newState();
   S.difficulty = DIFFICULTIES[difficulty] ? difficulty : 'medium';
   for (let i = 0; i < C.candidates; i++) S.candidates.push(genCandidate());
@@ -632,6 +703,7 @@ function openDifficultySetup(resetRun) {
   difficultyResetMode = !!resetRun;
   pendingDifficulty = DIFFICULTIES[S && S.difficulty] ? S.difficulty : 'medium';
   clearInterval(timer); timer = null;
+  Speech.clear();
   $('cancelDifficulty').hidden = !difficultyResetMode;
   $('difficultySetup').hidden = false;
   renderDifficultySetup();
@@ -644,7 +716,7 @@ function renderDifficultySetup() {
     button.classList.toggle('selected', selected);
     button.setAttribute('aria-pressed', String(selected));
   });
-  $('difficultyDetails').textContent = `${cfg.description} Частота форс-мажоров: ×${cfg.forceMajeureFrequency} (модификатор подготовлен для подключения системы событий).`;
+  $('difficultyDetails').textContent = `${cfg.description} Частота форс-мажоров: ×${cfg.forceMajeureFrequency} .`;
   $('difficultyTitle').textContent = difficultyResetMode ? 'Выбери сложность новой кампании' : 'Выбери сложность';
   document.querySelector('[data-act="start-difficulty"]').textContent = difficultyResetMode ? 'Начать новую кампанию' : 'Начать игру';
 }
@@ -709,29 +781,46 @@ function renderTop() {
   g.textContent = `Сложность: ${difficulty.name} · работа ×${difficulty.employeeSpeed.toFixed(2)} · проекты ×${difficulty.projectComplexity.toFixed(2)} · ` +
     (S.won ? '🏆 Цель достигнута! ' : 'Цель: ') +
     `клиенты ${S.customers}/${goal.customers}, репутация ${Math.floor(S.rep)}/${goal.reputation}`;
-  g.title = `Модификатор частоты форс-мажоров: ×${difficulty.forceMajeureFrequency} (ожидает подключения системы событий)`;
+  g.title = `Модификатор частоты форс-мажоров: ×${difficulty.forceMajeureFrequency}`;
 }
 
 function renderOffice() {
-  const desks = [];
-  for (let i = 0; i < S.desks; i++) {
+  const pages = Math.ceil(S.desks / 4);
+  officePage = Math.min(officePage, pages - 1);
+  const seats = [], roster = [], bubbles = [];
+  for (let slot = 0; slot < 4; slot++) {
+    const i = officePage * 4 + slot;
+    if (i >= S.desks) continue;
     const e = S.employees.find(x => x.desk === i);
-    if (!e) { desks.push(h('div', { class: 'desk empty' }, 'Свободное место')); continue; }
-    const t = e.task ? C.tasks[e.task] : null, w = warnings(e);
-    const speech = Speech.getBubble(e.id);
-    const activeSpeech = speech ? speech.text : null;
-    desks.push(h('div', { class: `desk ${e.status}${e.id === S.selected ? ' sel' : ''}${activeSpeech ? ' speaking' : ''}`, 'data-act': 'select', 'data-id': e.id,
-        role: 'button', tabindex: 0, 'aria-label': `Выбрать сотрудника ${e.name}` },
-      activeSpeech ? h('div', { class: 'speech-bubble', role: 'status', 'aria-live': 'polite' }, h('span', { class: 'speech-text' }, activeSpeech)) : null,
-      h('div', { class: 'bubble' }, sprite(SPRITES.bubbles[e.status === 'work' ? e.task : e.status], 'ico')),
-      w.length ? h('div', { class: 'warnflag', title: w.join('. ') }, '⚠') : null,
-      sprite(SPRITES.roles[e.role], 'sprite'),
-      h('div', { class: 'dname' }, e.name),
-      h('div', { class: 'drole' }, e.status === 'work' && t ? t.name : STATUS[e.status]),
-      bar(e.energy, 100, 'en')));
+    const isSelected = !!e && e.id === S.selected;
+    const w = e ? warnings(e) : [];
+    const speech = e ? Speech.getBubble(e.id) : null;
+    if (speech) bubbles.push(h('div', { class: 'speech-bubble', role: 'status', 'aria-live': 'polite',
+      style: `--speech-anchor-x:${slot % 2 ? 68.5 : 32.5}%;--speech-anchor-y:${slot < 2 ? 40 : 62}%` },
+      h('span', { class: 'speech-text' }, speech.text)));
+    seats.push(h('div', { class: `office-seat slot-${slot}${e ? ` ${e.status}` : ' empty'}${isSelected ? ' sel' : ''}`,
+      'data-act': e ? 'select' : null, 'data-id': e ? e.id : null,
+      role: e ? 'button' : null, tabindex: e ? 0 : null,
+      'aria-label': e ? `Выбрать сотрудника ${e.name}` : null },
+      e ? portrait(e, 'avatar--office') : null,
+      CharacterArt.desk(i),
+      isSelected ? h('span', { class: 'seat-bubble', 'aria-hidden': 'true',
+        title: e.task ? C.tasks[e.task].name : STATUS[e.status] },
+        sprite(SPRITES.bubbles[e.status === 'work' ? e.task : e.status], 'ico')) : null,
+      isSelected ? h('span', { class: 'seat-energy', 'aria-hidden': 'true' }, `⚡ ${Math.round(e.energy)}%`) : null,
+      w.length ? h('span', { class: 'seat-warning', title: w.join('. ') }, '⚠') : null));
+    roster.push(h('div', { class: `office-person${isSelected ? ' sel' : ''}` },
+      h('span', { class: 'mute' }, `Место ${i + 1}`),
+      e ? h('button', { type: 'button', 'data-act': 'select', 'data-id': e.id, title: e.name },
+        e.name, ' · ', isSelected && e.status === 'work' && e.task ? C.tasks[e.task].name : STATUS[e.status])
+        : h('span', {}, 'Свободно')));
   }
-  fill($('office'), desks);
+  fill($('office'), [h('div', { class: 'office-scene' }, seats, bubbles), h('div', { class: 'office-roster' }, roster)]);
   fill($('officeFoot'), [
+    pages > 1 ? h('div', { class: 'office-pages' },
+      h('button', { class: 'btn sec', type: 'button', 'data-act': 'officePrev', disabled: officePage === 0 }, '←'),
+      h('span', {}, `Комната ${officePage + 1} / ${pages}`),
+      h('button', { class: 'btn sec', type: 'button', 'data-act': 'officeNext', disabled: officePage === pages - 1 }, '→')) : null,
     S.desks < C.maxDesks
       ? h('button', { class: 'btn sec' + (S.money < C.deskCost ? ' off' : ''), type: 'button', 'data-act': 'expand' },
           `Расширить офис: +${C.desksPerUpgrade} места (${fmt(C.deskCost)})`)
@@ -745,7 +834,7 @@ function renderPanel() {
   if (!e) { fill(box, [h('p', { class: 'mute' }, 'Нажмите на сотрудника в офисе, чтобы увидеть его параметры и управлять им.')]); return; }
   const t = e.task ? C.tasks[e.task] : null;
   fill(box, [
-    h('div', { class: 'ehead' }, sprite(SPRITES.roles[e.role], 'sprite sm'),
+    h('div', { class: 'ehead' }, portrait(e, 'avatar--card'),
       h('div', {}, h('h3', {}, e.name), h('div', { class: 'mute' }, `${C.roles[e.role].name} · ${e.spec}`),
         h('span', { class: 'badge ' + e.status }, STATUS[e.status]))),
     stat('Уровень навыка', `${e.skill.toFixed(1)} / 10`, e.skill, 10, 'sk'),
@@ -781,7 +870,7 @@ function renderTasks() {
 function renderHire() {
   const items = S.candidates.map(c => {
     const fee = c.salary * C.hireFeeMult;
-    return h('div', { class: 'cand' }, sprite(SPRITES.roles[c.role], 'sprite sm'),
+    return h('div', { class: 'cand' }, portrait(c, 'avatar--card'),
       h('div', { class: 'cinfo' }, h('b', {}, c.name),
         h('div', { class: 'mute' }, `${C.roles[c.role].name} · ${c.spec}`),
         h('div', { class: 'mute' }, `Навык ${c.skill} · скорость ×${c.speed.toFixed(2)} · ${fmt(c.salary)} в день`)),
@@ -832,4 +921,5 @@ window.addEventListener('pagehide', flush);
 document.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)));
 $('formLogin').addEventListener('submit', ev => submitAuth('login', ev));
 $('formRegister').addEventListener('submit', ev => submitAuth('register', ev));
-boot();
+CharacterArt.load().then(() => { if (S) render(); }).catch(err => console.error('Не удалось загрузить изображения персонажей:', err));
+ForceMajeureSystem.init().finally(boot);

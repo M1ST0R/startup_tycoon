@@ -10,14 +10,15 @@
       'Алексей', 'Артём', 'Аркадий', 'Борис', 'Вадим', 'Валерий', 'Виктор', 'Владимир',
       'Глеб', 'Григорий', 'Даниил', 'Денис', 'Дмитрий', 'Егор', 'Иван', 'Игорь', 'Кирилл',
       'Константин', 'Леонид', 'Максим', 'Матвей', 'Михаил', 'Никита', 'Олег', 'Павел',
-      'Пётр', 'Роман', 'Семён', 'Сергей', 'Станислав', 'Тимур', 'Фёдор', 'Юрий', 'Ярослав'
+      'Пётр', 'Роман', 'Семён', 'Сергей', 'Станислав', 'Тимур', 'Фёдор', 'Юрий', 'Ярослав', 'Паша'
     ],
     feminineNames: [
       'Агата', 'Александра', 'Алина', 'Алёна', 'Алла', 'Анастасия', 'Анна', 'Валерия',
       'Варвара', 'Вера', 'Вероника', 'Виктория', 'Галина', 'Дарья', 'Ева', 'Екатерина',
       'Елена', 'Зоя', 'Ирина', 'Карина', 'Кира', 'Ксения', 'Лариса', 'Лидия', 'Людмила',
       'Марина', 'Мария', 'Надежда', 'Наталья', 'Ника', 'Оксана', 'Ольга', 'Полина', 'Раиса',
-      'Светлана', 'Тамара', 'Татьяна', 'Ульяна', 'Юлия', 'Яна'
+      'Светлана', 'Тамара', 'Татьяна', 'Ульяна', 'Юлия', 'Яна',
+      'Аня', 'Света', 'Катя', 'Лена', 'Оля', 'Рита', 'Юля'
     ],
     surnames: {
       masculine: [
@@ -28,7 +29,7 @@
         'Рефакторов', 'Пиксель', 'Багфиксин', 'Планёров', 'Макетников', 'Календарев', 'Курсоров',
         'Архивов', 'Папкин', 'Серверов', 'Терминалов', 'Кабельников', 'Логов', 'Дашбордов',
         'Мержев', 'Веткаев', 'Тасков', 'Роадмапов', 'Созвонов', 'Чеклистов', 'Бэкапов',
-        'Табов', 'Релизников', 'Пингвинов', 'Стикеров', 'План-Бов', 'Брейнштормов', 'Пулреквестов',
+        'Табов', 'Релизников', 'Пингвинов', 'План-Бов', 'Брейнштормов', 'Пулреквестов',
         'Данных', 'Скриптов', 'Кнопарёв', 'Кофепейкин', 'Запасных'
       ],
       feminine: [
@@ -39,7 +40,7 @@
         'Рефакторова', 'Пиксель', 'Багфиксина', 'Планёрова', 'Макетникова', 'Календарева', 'Курсорова',
         'Архивова', 'Папкина', 'Серверова', 'Терминалова', 'Кабельникова', 'Логова', 'Дашбордова',
         'Мержева', 'Веткаева', 'Таскова', 'Роадмапова', 'Созвонова', 'Чеклистова', 'Бэкапова',
-        'Табова', 'Релизникова', 'Пингвинова', 'Стикерова', 'План-Бова', 'Брейнштормова', 'Пулреквестова',
+        'Табова', 'Релизникова', 'Пингвинова', 'План-Бова', 'Брейнштормова', 'Пулреквестова',
         'Данных', 'Скриптова', 'Кнопарёва', 'Кофепейкина', 'Запасная'
       ]
     },
@@ -49,8 +50,39 @@
     ]
   };
 
-  const normalize = value => String(value || '').trim().toLocaleLowerCase('ru-RU').replace(/\s+/gu, ' ');
+  const SPRITE_INDICES = Object.freeze({
+    female: Object.freeze([0, 2, 4, 6, 8, 10, 12, 14, 16, 18]),
+    male: Object.freeze([1, 3, 5, 7, 9, 11, 13, 15, 17, 19])
+  });
+  const normalize = value => String(value || '').trim().toLocaleLowerCase('ru-RU').replace(/ё/gu, 'е').replace(/\s+/gu, ' ');
   const baseName = value => String(value || '').replace(/\s+«[^»]*»$/u, '').trim();
+  const genderIndex = new Map([
+    ...CONFIG.masculineNames.map(name => [normalize(name), 'male']),
+    ...CONFIG.feminineNames.map(name => [normalize(name), 'female'])
+  ]);
+  const validGender = value => value === 'male' || value === 'female';
+
+  function genderForName(name) {
+    return genderIndex.get(normalize(baseName(name)).split(' ')[0]) || null;
+  }
+
+  // Общие для клиента и сервера правила восстановления внешности старых персонажей.
+  function resolveIdentity(person = {}) {
+    const id = Number.isInteger(person.id) && person.id >= 0 ? person.id : 0;
+    const look = person.appearance && typeof person.appearance === 'object' ? person.appearance : {};
+    const savedSprite = Number.isInteger(look.sprite) && look.sprite >= 0 && look.sprite < 20 ? look.sprite : null;
+    const gender = validGender(person.gender) ? person.gender : genderForName(person.name)
+      || ((savedSprite === null ? id : savedSprite) % 2 ? 'male' : 'female');
+    const appearance = {
+      hair: Number.isInteger(look.hair) && look.hair >= 0 && look.hair < 64 ? look.hair : (id * 37 + 11) % 64,
+      cloth: Number.isInteger(look.cloth) && look.cloth >= 0 && look.cloth < 4 ? look.cloth : (id * 3 + 1) % 4
+    };
+    const original = savedSprite === null ? (appearance.hair * 3 + appearance.cloth) % 10 : savedSprite;
+    const allowed = SPRITE_INDICES[gender];
+    const sameSheet = original < 10 ? allowed.slice(0, 5) : allowed.slice(5);
+    appearance.sprite = allowed.includes(original) ? original : sameSheet[original % sameSheet.length];
+    return { gender, appearance };
+  }
   const randomItem = array => array[Math.floor(Math.random() * array.length)];
   const pickUniqueSet = names => {
     const exact = new Set();
@@ -76,12 +108,12 @@
     return base.length <= CONFIG.maxLength ? base : null;
   }
 
-  function generate(usedNames = []) {
+  function generate(usedNames = [], gender = null) {
     const used = pickUniqueSet(usedNames);
     const groups = [
-      { names: CONFIG.masculineNames, surnames: CONFIG.surnames.masculine },
-      { names: CONFIG.feminineNames, surnames: CONFIG.surnames.feminine }
-    ];
+      { gender: 'male', names: CONFIG.masculineNames, surnames: CONFIG.surnames.masculine },
+      { gender: 'female', names: CONFIG.feminineNames, surnames: CONFIG.surnames.feminine }
+    ].filter(group => !validGender(gender) || group.gender === gender);
 
     // Random attempts keep the list varied; the exhaustive fallback prevents collisions.
     for (let attempt = 0; attempt < 180; attempt++) {
@@ -107,5 +139,7 @@
     return `Сотрудник №${number}`;
   }
 
-  root.StartupNameGenerator = Object.freeze({ CONFIG, generate, normalize });
+  const api = Object.freeze({ CONFIG, SPRITE_INDICES, generate, normalize, genderForName, resolveIdentity });
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else root.StartupNameGenerator = api;
 })(typeof window !== 'undefined' ? window : globalThis);
