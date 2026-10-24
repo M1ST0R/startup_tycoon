@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Стартап-тайкун</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="authView" hidden>
+  <div class="authbox card">
+    <h1>Стартап-тайкун</h1>
+    <p class="mute">Войдите или создайте аккаунт. Нужны только имя пользователя и пароль.</p>
+    <div class="tabs">
+      <button class="btn" type="button" id="tabLogin" data-tab="login">Вход</button>
+      <button class="btn sec" type="button" id="tabRegister" data-tab="register">Регистрация</button>
+    </div>
+    <form id="formLogin" novalidate>
+      <label>Имя пользователя<input name="username" autocomplete="username" maxlength="20" autocapitalize="none" spellcheck="false" required></label>
+      <label>Пароль<input name="password" type="password" autocomplete="current-password" maxlength="128" required></label>
+      <button class="btn" type="submit">Войти</button>
+    </form>
+    <form id="formRegister" hidden novalidate>
+      <label>Имя пользователя (3–20 символов: латиница, цифры, _)<input name="username" autocomplete="username" maxlength="20" autocapitalize="none" spellcheck="false" required></label>
+      <label>Пароль (от 8 символов)<input name="password" type="password" autocomplete="new-password" maxlength="128" required></label>
+      <label>Повторите пароль<input name="password2" type="password" autocomplete="new-password" maxlength="128" required></label>
+      <button class="btn" type="submit">Создать аккаунт</button>
+    </form>
+    <p id="authMsg" class="authmsg" role="alert"></p>
+  </div>
+</div>
+
+<div id="gameView" hidden>
+<header id="top">
+  <div class="acct">
+    <h1>Стартап-тайкун</h1>
+    <div class="who">
+      <span id="saveStatus" class="mute" aria-live="polite"></span>
+      <span>Аккаунт: <b id="userName"></b></span>
+      <button class="btn sec" type="button" data-act="logout">Выйти</button>
+    </div>
+  </div>
+  <div class="stats">
+    <div class="stat"><span class="lbl">Деньги</span><b id="sMoney"></b></div>
+    <div class="stat"><span class="lbl">Репутация</span><b id="sRep"></b></div>
+    <div class="stat"><span class="lbl">Продукт</span><b id="sProd"></b></div>
+    <div class="stat"><span class="lbl">Клиенты</span><b id="sCust"></b></div>
+    <div class="stat"><span class="lbl">Доход в день</span><b id="sInc"></b></div>
+    <div class="stat"><span class="lbl">Зарплаты + офис в день</span><b id="sExp"></b></div>
+    <div class="stat"><span class="lbl">Время</span><b id="sTime"></b></div>
+  </div>
+  <div class="barrow">
+    <div id="goal"></div>
+    <div class="ctrl">
+      <button class="btn sec" type="button" data-act="pause" id="bPause">Пауза</button>
+      <button class="btn sec" type="button" data-act="speed" data-v="1" title="Обычная скорость">1×</button>
+      <button class="btn sec" type="button" data-act="speed" data-v="2" title="Скорость ×2">2×</button>
+      <button class="btn sec" type="button" data-act="speed" data-v="4" title="Скорость ×4">4×</button>
+      <button class="btn sec" type="button" data-act="save" title="Сохранить игру на сервере">Сохранить</button>
+      <button class="btn sec" type="button" data-act="load" title="Загрузить игру с сервера">Загрузить</button>
+      <button class="btn sec" type="button" data-act="reset">Начать заново</button>
+    </div>
+  </div>
+</header>
+
+<div id="notice" class="notice" hidden></div>
+
+<main>
+  <section class="card" style="grid-area:office"><h2>Офис</h2><div id="office"></div><div id="officeFoot" class="foot"></div></section>
+  <section class="card" style="grid-area:emp"><h2>Выбранный сотрудник</h2><div id="emp"></div></section>
+  <section class="card" style="grid-area:tasks"><h2>Задачи</h2><div id="tasks"></div></section>
+  <section class="card" style="grid-area:hire"><h2>Найм</h2><div id="hire"></div></section>
+  <section class="card" style="grid-area:log"><h2>События</h2><ul id="log"></ul></section>
+</main>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
