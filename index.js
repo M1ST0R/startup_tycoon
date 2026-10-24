@@ -141,7 +141,7 @@ async function main() {
 
   /* ---------- Статические файлы клиента ---------- */
   app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
-  for (const file of ['style.css', 'script.js']) {
+  for (const file of ['style.css', 'name-generator.js', 'office-dialogue.js', 'speech-system.js', 'script.js']) {
     app.get(`/${file}`, (req, res) => res.sendFile(path.join(__dirname, file)));
   }
 

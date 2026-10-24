@@ -1,0 +1,111 @@
+'use strict';
+
+/* Локальный генератор русскоязычных имён. Подключается как обычный script
+   и публикует StartupNameGenerator для основной игры. */
+(function attachNameGenerator(root) {
+  const CONFIG = {
+    nicknameChance: 0.16,
+    maxLength: 32,
+    masculineNames: [
+      'Алексей', 'Артём', 'Аркадий', 'Борис', 'Вадим', 'Валерий', 'Виктор', 'Владимир',
+      'Глеб', 'Григорий', 'Даниил', 'Денис', 'Дмитрий', 'Егор', 'Иван', 'Игорь', 'Кирилл',
+      'Константин', 'Леонид', 'Максим', 'Матвей', 'Михаил', 'Никита', 'Олег', 'Павел',
+      'Пётр', 'Роман', 'Семён', 'Сергей', 'Станислав', 'Тимур', 'Фёдор', 'Юрий', 'Ярослав'
+    ],
+    feminineNames: [
+      'Агата', 'Александра', 'Алина', 'Алёна', 'Алла', 'Анастасия', 'Анна', 'Валерия',
+      'Варвара', 'Вера', 'Вероника', 'Виктория', 'Галина', 'Дарья', 'Ева', 'Екатерина',
+      'Елена', 'Зоя', 'Ирина', 'Карина', 'Кира', 'Ксения', 'Лариса', 'Лидия', 'Людмила',
+      'Марина', 'Мария', 'Надежда', 'Наталья', 'Ника', 'Оксана', 'Ольга', 'Полина', 'Раиса',
+      'Светлана', 'Тамара', 'Татьяна', 'Ульяна', 'Юлия', 'Яна'
+    ],
+    surnames: {
+      masculine: [
+        'Отвёрткин', 'Шляпин', 'Техдолгов', 'Багов', 'Кофейников', 'Дедлайнов', 'Пиксельников',
+        'Табличкин', 'Деплоев', 'Хотфиксов', 'Патчев', 'Коммитов', 'Задачкин', 'Спринтов',
+        'Брифов', 'Скриншотов', 'Кнопкин', 'Клавишин', 'Тестов', 'Понедельников', 'Чайников',
+        'Стикеров', 'Прототипов', 'Митингов', 'Прокрастинов', 'Релизов', 'Бюджетов', 'Фичеров',
+        'Рефакторов', 'Пиксель', 'Багфиксин', 'Планёров', 'Макетников', 'Календарев', 'Курсоров',
+        'Архивов', 'Папкин', 'Серверов', 'Терминалов', 'Кабельников', 'Логов', 'Дашбордов',
+        'Мержев', 'Веткаев', 'Тасков', 'Роадмапов', 'Созвонов', 'Чеклистов', 'Бэкапов',
+        'Табов', 'Релизников', 'Пингвинов', 'Стикеров', 'План-Бов', 'Брейнштормов', 'Пулреквестов',
+        'Данных', 'Скриптов', 'Кнопарёв', 'Кофепейкин', 'Запасных'
+      ],
+      feminine: [
+        'Отвёрткина', 'Шляпина', 'Техдолгова', 'Багова', 'Кофейникова', 'Дедлайнова', 'Пиксельникова',
+        'Табличкина', 'Деплоева', 'Хотфиксова', 'Патчева', 'Коммитова', 'Задачкина', 'Спринтова',
+        'Брифова', 'Скриншотова', 'Кнопкина', 'Клавишина', 'Тестова', 'Понедельникова', 'Чайникова',
+        'Стикерова', 'Прототипова', 'Митингова', 'Прокрастинова', 'Релизова', 'Бюджетова', 'Фичерова',
+        'Рефакторова', 'Пиксель', 'Багфиксина', 'Планёрова', 'Макетникова', 'Календарева', 'Курсорова',
+        'Архивова', 'Папкина', 'Серверова', 'Терминалова', 'Кабельникова', 'Логова', 'Дашбордова',
+        'Мержева', 'Веткаева', 'Таскова', 'Роадмапова', 'Созвонова', 'Чеклистова', 'Бэкапова',
+        'Табова', 'Релизникова', 'Пингвинова', 'Стикерова', 'План-Бова', 'Брейнштормова', 'Пулреквестова',
+        'Данных', 'Скриптова', 'Кнопарёва', 'Кофепейкина', 'Запасная'
+      ]
+    },
+    nicknames: [
+      'Пиксель', 'Кофе', 'Патч', 'Фикс', 'План Б', 'Скрепка', 'Хотфикс', 'Табличка',
+      'Кнопка', 'Спринт', 'Бэкап', 'Бриф', 'Шорткат', 'Тихий релиз', 'Микроменеджер', 'Понедельник'
+    ]
+  };
+
+  const normalize = value => String(value || '').trim().toLocaleLowerCase('ru-RU').replace(/\s+/gu, ' ');
+  const baseName = value => String(value || '').replace(/\s+«[^»]*»$/u, '').trim();
+  const randomItem = array => array[Math.floor(Math.random() * array.length)];
+  const pickUniqueSet = names => {
+    const exact = new Set();
+    const bases = new Set();
+    for (const value of names || []) {
+      const full = normalize(value);
+      if (!full) continue;
+      exact.add(full);
+      bases.add(normalize(baseName(value)));
+    }
+    return { exact, bases };
+  };
+
+  function formatName(firstName, surname, used, includeNickname) {
+    const base = `${firstName} ${surname}`;
+    if (used.bases.has(normalize(base)) || used.exact.has(normalize(base))) return null;
+
+    if (includeNickname && Math.random() < CONFIG.nicknameChance) {
+      const nickname = randomItem(CONFIG.nicknames);
+      const decorated = `${base} «${nickname}»`;
+      if (decorated.length <= CONFIG.maxLength && !used.exact.has(normalize(decorated))) return decorated;
+    }
+    return base.length <= CONFIG.maxLength ? base : null;
+  }
+
+  function generate(usedNames = []) {
+    const used = pickUniqueSet(usedNames);
+    const groups = [
+      { names: CONFIG.masculineNames, surnames: CONFIG.surnames.masculine },
+      { names: CONFIG.feminineNames, surnames: CONFIG.surnames.feminine }
+    ];
+
+    // Random attempts keep the list varied; the exhaustive fallback prevents collisions.
+    for (let attempt = 0; attempt < 180; attempt++) {
+      const group = randomItem(groups);
+      const first = randomItem(group.names);
+      const surname = randomItem(group.surnames);
+      const result = formatName(first, surname, used, true);
+      if (result) return result;
+    }
+
+    for (const group of groups) {
+      for (const first of group.names) {
+        for (const surname of group.surnames) {
+          const result = formatName(first, surname, used, false);
+          if (result) return result;
+        }
+      }
+    }
+
+    // Практически недостижимо, но остаётся гарантированно уникальный запасной вариант.
+    let number = 1;
+    while (used.exact.has(normalize(`Сотрудник №${number}`))) number++;
+    return `Сотрудник №${number}`;
+  }
+
+  root.StartupNameGenerator = Object.freeze({ CONFIG, generate, normalize });
+})(typeof window !== 'undefined' ? window : globalThis);

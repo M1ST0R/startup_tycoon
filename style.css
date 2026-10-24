@@ -1,5 +1,5 @@
 :root{--ink:#12202e;--panel:#1c3044;--panel2:#2a4560;--line:#38546f;--text:#e9eef4;--mute:#9fb3c6;
---gold:#ffcf4a;--mint:#5fd3a5;--coral:#ff7a6b;--sky:#6db7ff}
+--gold:#ffcf4a;--mint:#5fd3a5;--coral:#ff7a6b;--sky:#6db7ff;--speech-bubble-width:204px;--speech-bubble-height:58px;--speech-bubble-font:11px}
 *{box-sizing:border-box}
 body{margin:0;background:var(--ink);color:var(--text);font:15px/1.4 "Trebuchet MS","Segoe UI",sans-serif}
 h1,h2,h3{margin:0;font-family:"Courier New",monospace;letter-spacing:.5px}
@@ -22,9 +22,9 @@ font:inherit;font-weight:700;cursor:pointer;min-height:40px}
 .btn.on{outline:2px solid var(--gold)}.btn.off{opacity:.5}
 :focus-visible{outline:3px solid var(--sky);outline-offset:2px}
 /* офис */
-#office{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:18px 12px;padding:18px 12px;border-radius:6px;
+#office{position:relative;isolation:isolate;overflow:visible;display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:82px 12px;padding:104px 12px 18px;border-radius:6px;
 background:conic-gradient(#d9c7a1 25%,#cbb68a 0 50%,#d9c7a1 0 75%,#cbb68a 0) 0 0/48px 48px}
-.desk{position:relative;min-height:128px;background:#8b5e3c;border:3px solid #5b3a22;border-radius:6px;padding:8px 4px 6px;
+.desk{position:relative;z-index:1;min-height:128px;background:#8b5e3c;border:3px solid #5b3a22;border-radius:6px;padding:8px 4px 6px;
 text-align:center;cursor:pointer;box-shadow:0 4px 0 #4a2f1b}
 .desk.sel{outline:3px solid var(--gold);outline-offset:2px}
 .desk.empty{background:transparent;border:3px dashed #a89468;color:#6b5a38;box-shadow:none;cursor:default;display:grid;place-items:center;font-size:13px}
@@ -33,10 +33,16 @@ img.sprite{width:48px;height:48px;object-fit:contain;margin:0 auto}
 .sprite.sm{flex:none;width:48px}
 .ico{font-size:17px;image-rendering:pixelated}img.ico{width:20px;height:20px;vertical-align:middle}
 .bubble{position:absolute;top:-12px;right:-6px;background:#fff;color:#000;border-radius:12px;padding:1px 6px}
+.desk.speaking{z-index:1000}
+/* Облачко имеет постоянные размеры и не анимируется: текст не прыгает при появлении. */
+.speech-bubble{position:absolute;z-index:1001;bottom:calc(100% + 12px);left:50%;transform:translateX(-50%);width:var(--speech-bubble-width);height:var(--speech-bubble-height);display:flex;align-items:center;overflow:hidden;background:#fff6c9;color:#182738;border:2px solid #20364b;border-radius:10px;padding:6px 8px;font-size:var(--speech-bubble-font);font-weight:700;line-height:1.22;text-align:left;overflow-wrap:anywhere;box-shadow:0 5px 12px #0008;pointer-events:none}
+.speech-text{display:-webkit-box;width:100%;-webkit-box-orient:vertical;-webkit-line-clamp:3;max-height:42px;overflow:hidden;overflow-wrap:anywhere;word-break:normal}
+.speech-bubble::after{content:"";position:absolute;left:calc(50% - 5px);bottom:-7px;width:8px;height:8px;background:#fff8d9;border-right:2px solid #20364b;border-bottom:2px solid #20364b;transform:rotate(45deg)}
 .warnflag{position:absolute;top:-12px;left:-6px;background:var(--coral);color:#2a0600;border-radius:12px;padding:1px 6px;font-weight:700}
-.dname{font-weight:700;font-size:14px}.drole{font-size:12px;color:#f3e3cf;min-height:17px}
+.dname{font-weight:700;font-size:12px;line-height:1.15;min-height:28px;overflow-wrap:anywhere}.drole{font-size:12px;color:#f3e3cf;min-height:17px}
 .desk.work .sprite{animation:bob .5s steps(2) infinite}
 @keyframes bob{50%{transform:translateY(-3px)}}
+@media (max-width:760px){:root{--speech-bubble-width:176px;--speech-bubble-height:54px;--speech-bubble-font:10px}.speech-bubble{padding:5px 7px}.speech-text{max-height:39px}}
 @media (prefers-reduced-motion:reduce){.desk.work .sprite{animation:none}}
 .foot{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px}
 /* шкалы и панели */
@@ -62,7 +68,7 @@ img.sprite{width:48px;height:48px;object-fit:contain;margin:0 auto}
 #log .good{color:var(--mint)}#log .warn{color:var(--gold)}#log .bad{color:var(--coral)}
 @media (max-width:760px){
   main{grid-template-columns:minmax(0,1fr);grid-template-areas:"office" "emp" "tasks" "hire" "log";padding:8px}
-  #office{grid-template-columns:repeat(auto-fill,minmax(100px,1fr))}
+  #office{grid-template-columns:repeat(auto-fill,minmax(100px,1fr));padding-top:104px;gap:82px 10px}
   .ctrl .btn{padding:8px 9px;font-size:14px}
 }
 /* аккаунт и сообщения сервера */

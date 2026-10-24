@@ -45,8 +45,7 @@ const C = {
     code:      { id: 'code', name: 'Разработка продукта', work: 30, desc: 'Продукт +4…8% за задачу. Без продукта клиенты почти не платят.' },
     ui:        { id: 'ui', name: 'Улучшение интерфейса', work: 24, desc: 'Репутация +1…2 и немного продукта.' },
     marketing: { id: 'marketing', name: 'Рекламная кампания', work: 25, desc: 'Новые клиенты. Чем лучше продукт и репутация, тем их больше.' }
-  },
-  names: ['Аня', 'Михаил', 'Света', 'Игорь', 'Катя', 'Денис', 'Лена', 'Артём', 'Оля', 'Паша', 'Рита', 'Глеб', 'Тимур', 'Юля']
+  }
 };
 const STATUS = { work: 'Работает', rest: 'Отдыхает', idle: 'Бездействует' };
 const KEY = 'startupTycoon.save.v1';   // ключ СТАРОГО локального сохранения (используется только для импорта)
@@ -56,6 +55,7 @@ const KEY = 'startupTycoon.save.v1';   // ключ СТАРОГО локальн
    ===================================================================== */
 let S;                 // текущее состояние (сохраняется целиком)
 let timer = null, paused = false, tickCount = 0;
+// Система реплик вынесена в speech-system.js; здесь остаётся только интеграция с игрой.
 
 const num = (v, def, min, max) => { const n = Number(v); return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : def; };
 const rnd = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
@@ -68,15 +68,70 @@ const rentCost = () => C.rentBase + C.rentPerDesk * S.desks;
 const salaries = () => S.employees.reduce((s, e) => s + e.salary, 0);
 const incomeTick = () => S.customers * C.arpu * (0.3 + S.product / 100);
 
-function newState() {
-  return { v: 1, money: C.startMoney, rep: 0, product: 0, customers: 0, day: 1, hour: 9, speed: 1,
-           desks: C.startDesks, nextId: 1, employees: [], candidates: [], log: [], won: false, selected: null };
+function defaultFlavorState() {
+  return { lastTick: -1000, cooldowns: {}, recent: [] };
 }
 
-/** Добавляет запись в журнал событий (новые сверху). */
+function newState() {
+  return { v: 1, money: C.startMoney, rep: 0, product: 0, customers: 0, day: 1, hour: 9, speed: 1,
+           desks: C.startDesks, nextId: 1, employees: [], candidates: [], log: [], won: false, selected: null,
+           flavor: defaultFlavorState() };
+}
+
+/** Добавляет запись в журнал событий (новые сверху). Весь текст выводится как textContent. */
 function log(text, type = 'info') {
-  S.log.unshift({ t: timeStr(), text, type });
+  S.log.unshift({ t: timeStr(), text: String(text).slice(0, 200), type });
   if (S.log.length > C.logMax) S.log.length = C.logMax;
+}
+
+function gameTickIndex() {
+  return S ? (S.day - 1) * 24 + S.hour : 0;
+}
+
+function dailyCosts() {
+  return S ? rentCost() + salaries() : 1;
+}
+
+/* Реактивные реплики вынесены в отдельный модуль. Эти обёртки сохраняют
+   прежние точки вызова игры и не дублируют логику очереди/порогов. */
+const Speech = StartupSpeechSystem.create({
+  getState: () => S,
+  getConfig: () => C,
+  getSelected: () => sel(),
+  gameTickIndex,
+  dailyCosts,
+  formatMoney: fmt,
+  pick,
+  dialogue: StartupOfficeDialogue,
+  log: (text, type) => log(text, type),
+  markDirty: () => { if (API) API.dirty = true; },
+  isVisible: () => !!(S && $('gameView') && !$('gameView').hidden),
+  renderOffice: () => renderOffice()
+});
+
+function syncEmployeeReaction(person) { Speech.syncEmployee(person); }
+function seedReactionState() { Speech.seed(); }
+function showCharacterLine(person, category, values = {}, options = {}) {
+  return Speech.showCharacterLine(person, category, values, options);
+}
+function showResumeBubble() { Speech.resume(); }
+function flavor(category, values = {}, options = {}) { return Speech.flavor(category, values, options); }
+function flavorContext(person, task) { return Speech.context(person, task); }
+function evaluateReactions() { Speech.evaluateReactions(); }
+
+function normalizeFlavorState(raw) {
+  const result = defaultFlavorState();
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return result;
+  result.lastTick = Math.floor(num(raw.lastTick, -1000, -1e9, 1e9));
+  if (raw.cooldowns && typeof raw.cooldowns === 'object' && !Array.isArray(raw.cooldowns)) {
+    Object.entries(raw.cooldowns).slice(0, 32).forEach(([key, value]) => {
+      if (/^[a-zA-Z][a-zA-Z0-9]*$/u.test(key)) result.cooldowns[key] = Math.floor(num(value, -1000, -1e9, 1e9));
+    });
+  }
+  result.recent = Array.isArray(raw.recent)
+    ? raw.recent.slice(0, StartupOfficeDialogue.CONFIG.recentLimit).filter(x => typeof x === 'string').map(x => x.slice(0, 80))
+    : [];
+  return result;
 }
 
 /* =====================================================================
@@ -86,9 +141,8 @@ function log(text, type = 'info') {
 function genCandidate() {
   const role = pick(Object.keys(C.roles)), R = C.roles[role];
   const skill = Math.min(8, 1 + rnd(0, 2 + Math.floor(S.rep / 15)));
-  const taken = new Set([...S.employees, ...S.candidates].map(p => p.name));
-  const free = C.names.filter(n => !taken.has(n));
-  return { id: S.nextId++, name: pick(free.length ? free : C.names), role, spec: pick(R.specs), skill,
+  const taken = new Set([...S.employees, ...S.candidates].map(p => p.name).filter(Boolean));
+  return { id: S.nextId++, name: StartupNameGenerator.generate(taken), role, spec: pick(R.specs), skill,
            salary: R.baseSalary + skill * C.salaryPerSkill, speed: +(0.8 + Math.random() * 0.4).toFixed(2),
            energy: 100, mood: rnd(60, 90), task: null, progress: 0, status: 'idle', desk: -1 };
 }
@@ -110,7 +164,7 @@ function warnings(e) {
 
 /** Результат завершённой задачи. */
 function completeTask(e, t) {
-  const p0 = S.product, r0 = S.rep, c0 = S.customers;
+  const p0 = S.product, r0 = S.rep, c0 = S.customers, skill0 = e.skill;
   e.skill = Math.min(10, e.skill + 0.12);
   e.mood = Math.min(100, e.mood + 3);
   let msg;
@@ -128,9 +182,13 @@ function completeTask(e, t) {
     msg = `клиенты +${g}`;
   }
   log(`${e.name} завершил «${t.name}»: ${msg}`, 'good');
+  flavor('taskSuccess', flavorContext(e, t), { type: 'good', force: true });
   if (Math.floor(S.product / 25) > Math.floor(p0 / 25)) log(`Продукт готов на ${Math.floor(S.product)}%`, 'good');
   if (Math.floor(S.rep / 10) > Math.floor(r0 / 10)) log(`Репутация выросла до ${Math.floor(S.rep)}`, 'good');
+  if (S.rep > r0) flavor('reputation', flavorContext(e, t), { type: 'good' });
   if (Math.floor(S.customers / 25) > Math.floor(c0 / 25)) log(`Уже ${S.customers} клиентов!`, 'good');
+  if (S.customers > c0) flavor('clientGrowth', flavorContext(e, t), { type: 'good' });
+  if (Math.floor(e.skill) > Math.floor(skill0)) flavor('skillUp', flavorContext(e, t), { type: 'good' });
 }
 
 /** Один тик работы сотрудника: работа, отдых или простой. */
@@ -142,11 +200,13 @@ function workEmployee(e) {
     if (e.energy >= C.resumeAt) {
       e.status = e.task ? 'work' : 'idle';
       log(`${e.name} отдохнул${e.task ? ' и вернулся к задаче' : ''}`, 'good');
+      flavor('rest', flavorContext(e, e.task ? C.tasks[e.task] : null), { type: 'good' });
     }
   } else if (!e.task) {
     e.status = 'idle';
     e.energy = Math.min(100, e.energy + C.idleEnergy);
     e.mood = Math.max(0, e.mood - 0.25);
+    flavor('idle', flavorContext(e), { type: 'info' });
   } else {
     e.status = 'work';
     e.energy = Math.max(0, e.energy - C.workEnergy);
@@ -154,14 +214,22 @@ function workEmployee(e) {
     if (e.energy <= C.autoRestBelow) {
       e.status = 'rest';
       log(`${e.name} выбился из сил и ушёл отдыхать`, 'warn');
+      flavor('rest', flavorContext(e, e.task ? C.tasks[e.task] : null), { type: 'warn' });
     } else {
       const t = C.tasks[e.task];
       e.progress += efficiency(e, e.task);
+      flavor('taskWork', flavorContext(e, t), { type: 'info' });
       if (e.progress >= t.work) { e.progress -= t.work; completeTask(e, t); }
     }
   }
-  if (en0 >= 25 && e.energy < 25) log(`${e.name} устал`, 'warn');
-  if (mo0 >= 30 && e.mood < 30) log(`${e.name} недоволен`, 'warn');
+  if (en0 >= 25 && e.energy < 25) {
+    log(`${e.name} устал`, 'warn');
+    flavor('rest', flavorContext(e, e.task ? C.tasks[e.task] : null), { type: 'warn' });
+  }
+  if (mo0 >= 30 && e.mood < 30) {
+    log(`${e.name} недоволен`, 'warn');
+    flavor('lowMood', flavorContext(e, e.task ? C.tasks[e.task] : null), { type: 'warn' });
+  }
 }
 
 /* =====================================================================
@@ -172,16 +240,24 @@ function payDay() {
   let paid = 0, missed = 0;
   const rent = rentCost();
   if (S.money >= rent) { S.money -= rent; paid += rent; }
-  else { S.rep = Math.max(0, S.rep - 1); missed++; log('Нечем платить за аренду офиса', 'bad'); }
+  else {
+    S.rep = Math.max(0, S.rep - 1); missed++;
+    log('Нечем платить за аренду офиса', 'bad');
+    flavor('failure', { ...flavorContext(null), name: 'Финансовый отдел', reason: 'аренду нечем оплачивать' }, { type: 'bad' });
+  }
   S.employees.forEach(e => {
     if (S.money >= e.salary) { S.money -= e.salary; paid += e.salary; }
     else {
       e.mood = Math.max(0, e.mood - 15); S.rep = Math.max(0, S.rep - 1); missed++;
       log(`Не хватило денег на зарплату: ${e.name}`, 'bad');
+      flavor('failure', { ...flavorContext(e), reason: 'зарплата не поместилась в бюджет' }, { type: 'bad' });
     }
   });
   log(`Конец дня: выплачено ${fmt(paid)}`, missed ? 'bad' : 'info');
-  if (S.money < (rent + salaries()) * 2) log('Денег хватит меньше чем на 2 дня расходов', 'warn');
+  if (S.money < (rent + salaries()) * 2) {
+    log('Денег хватит меньше чем на 2 дня расходов', 'warn');
+    flavor('moneyLow', flavorContext(null), { type: 'warn' });
+  }
 }
 
 function checkGoal() {
@@ -198,6 +274,11 @@ function tick() {
     if (S.hour >= 24) { S.hour = 0; S.day++; payDay(); }
     S.employees.forEach(workEmployee);
     S.money += incomeTick();
+    evaluateReactions();
+    if (Math.random() < StartupOfficeDialogue.CONFIG.rareTickChance) {
+      const chosen = sel();
+      flavor('officeRare', chosen ? flavorContext(chosen) : {}, { type: 'info' });
+    }
     checkGoal();
     API.dirty = true;
     if (++tickCount % C.autosaveTicks === 0) save(true);
@@ -222,7 +303,10 @@ function hire(id) {
   c.desk = 0; while (used.has(c.desk)) c.desk++;
   S.employees.push(c);
   S.selected = c.id;
-  log(`Нанят сотрудник: ${c.name} (${C.roles[c.role].name}, ${c.spec})`, 'good');
+  syncEmployeeReaction(c);
+  if (!flavor('hire', flavorContext(c), { force: true, type: 'good' })) {
+    log(`Нанят сотрудник: ${c.name} (${C.roles[c.role].name}, ${c.spec})`, 'good');
+  }
 }
 
 function assign(taskId) {
@@ -231,7 +315,9 @@ function assign(taskId) {
   if (!C.tasks[taskId]) return;
   if (e.task !== taskId) e.progress = 0;
   e.task = taskId; e.status = 'work';
+  syncEmployeeReaction(e);
   log(`${e.name} назначен на «${C.tasks[taskId].name}»`);
+  flavor('taskStart', flavorContext(e, C.tasks[taskId]), { type: 'info', force: true });
 }
 
 /** Обработчик всех кнопок (делегирование событий по data-act). */
@@ -242,12 +328,12 @@ function act(ev) {
   switch (a) {
     case 'select': if (S.employees.some(x => x.id === +el.dataset.id)) S.selected = +el.dataset.id; break;
     case 'assign': assign(el.dataset.task); break;
-    case 'rest': if (e) { e.status = 'rest'; log(`${e.name} отправлен отдыхать`); } break;
-    case 'back': if (e) { e.status = e.task ? 'work' : 'idle'; log(`${e.name} вернулся к работе`); } break;
-    case 'clear': if (e) { e.task = null; e.progress = 0; e.status = 'idle'; log(`${e.name} снят с задачи`); } break;
+    case 'rest': if (e) { e.status = 'rest'; syncEmployeeReaction(e); log(`${e.name} отправлен отдыхать`); showCharacterLine(e, 'rest', flavorContext(e, e.task ? C.tasks[e.task] : null), { force: true, priority: 9 }); } break;
+    case 'back': if (e) { e.status = e.task ? 'work' : 'idle'; syncEmployeeReaction(e); log(`${e.name} вернулся к работе`); showCharacterLine(e, e.energy < 85 ? 'energyLow' : 'energyRecovered', flavorContext(e, e.task ? C.tasks[e.task] : null), { force: true, priority: 4 }); } break;
+    case 'clear': if (e) { e.task = null; e.progress = 0; e.status = 'idle'; syncEmployeeReaction(e); log(`${e.name} снят с задачи`); showCharacterLine(e, 'idle', flavorContext(e), { force: true, priority: 3 }); } break;
     case 'fire':
       if (e && confirm(`Уволить сотрудника ${e.name}?`)) {
-        S.employees = S.employees.filter(x => x !== e); S.selected = null; log(`${e.name} уволен`, 'warn');
+        S.employees = S.employees.filter(x => x !== e); Speech.removeEmployee(e.id); S.selected = null; log(`${e.name} уволен`, 'warn');
       } break;
     case 'hire': hire(+el.dataset.id); break;
     case 'refresh':
@@ -292,7 +378,7 @@ function cleanPerson(r) {
   let status = ['work', 'rest', 'idle'].includes(r.status) ? r.status : 'idle';
   if (status === 'work' && !task) status = 'idle';
   if (status === 'idle' && task) status = 'work';
-  return { id: Math.floor(num(r.id, 0, 0, 1e9)), name: String(r.name || 'Без имени').slice(0, 24), role: r.role,
+  return { id: Math.floor(num(r.id, 0, 0, 1e9)), name: String(typeof r.name === 'string' ? r.name : '').slice(0, 32), role: r.role,
            spec: String(r.spec || '').slice(0, 24), skill: num(r.skill, 1, 1, 10), salary: Math.floor(num(r.salary, 100, 0, 1e6)),
            speed: num(r.speed, 1, 0.5, 2), energy: num(r.energy, 100, 0, 100), mood: num(r.mood, 70, 0, 100),
            task, progress: num(r.progress, 0, 0, 1e4), status, desk: Math.floor(num(r.desk, -1, -1, 99)) };
@@ -312,6 +398,20 @@ function sanitize(r) {
   s.employees.forEach(e => { if (e.desk < 0 || e.desk >= s.desks || used.has(e.desk)) e.desk = -1; else used.add(e.desk); });
   s.employees.forEach(e => { if (e.desk < 0) { let d = 0; while (used.has(d)) d++; e.desk = d; used.add(d); } });
   s.candidates = (Array.isArray(r.candidates) ? r.candidates : []).map(cleanPerson).filter(Boolean).slice(0, C.candidates);
+  // Старые сохранения сохраняют имеющиеся имена; недостающие получают новые уникальные имена.
+  const people = [...s.employees, ...s.candidates];
+  const usedNames = new Set(people.map(p => p.name.trim()).filter(n => n && n !== 'Без имени'));
+  let migratedState = !r.flavor;
+  for (const person of people) {
+    if (!person.name || person.name === 'Без имени') {
+      person.name = StartupNameGenerator.generate(usedNames);
+      usedNames.add(person.name);
+      migratedState = true;
+    }
+  }
+  s.flavor = normalizeFlavorState(r.flavor);
+  // Помечаем миграцию для сохранения выданных имён и антиспам-истории на сервере.
+  if (migratedState) API.dirty = true;
   s.nextId = 1 + Math.max(num(r.nextId, 0, 0, 1e9), ...[...s.employees, ...s.candidates].map(p => p.id));
   s.selected = s.employees.some(e => e.id === r.selected) ? r.selected : null;
   s.log = (Array.isArray(r.log) ? r.log : []).slice(0, C.logMax).map(l => ({
@@ -384,14 +484,14 @@ async function loadFromServer() {
     if (status !== 200) return 'error';
     if (!data.save) { API.rev = 0; return 'none'; }
     API.rev = Number(data.save.rev) || 0;
-    try { S = sanitize(data.save.state); return 'ok'; } catch (err) { return 'bad'; }
+    try { S = sanitize(data.save.state); seedReactionState(); return 'ok'; } catch (err) { return 'bad'; }
   } catch (err) { return 'error'; }
 }
 
 /** Кнопка «Загрузить». */
 async function loadGame() {
   const r = await loadFromServer();
-  if (r === 'ok') { API.hold = null; API.dirty = false; tickCount = 0; restartTimer(); log('Игра загружена с сервера', 'good'); setStatus('Загружено в ' + hhmm()); }
+  if (r === 'ok') { API.hold = null; API.dirty = false; tickCount = 0; restartTimer(); log('Игра загружена с сервера', 'good'); setStatus('Загружено в ' + hhmm()); showResumeBubble(); }
   else if (r === 'none') log('На сервере пока нет сохранения', 'bad');
   else if (r === 'bad') log('Сохранение на сервере повреждено, загрузка отменена', 'bad');
   else if (r === 'error') log('Не удалось связаться с сервером', 'bad');
@@ -404,7 +504,7 @@ async function importLocal() {
   try { local = sanitize(JSON.parse(legacyRaw())); }
   catch (err) { API.legacy = false; log('Локальное сохранение повреждено, импорт невозможен', 'bad'); return; }
   if ((S.day > 1 || S.employees.length) && !confirm('В аккаунте уже есть прогресс. Заменить его локальным сохранением из этого браузера?')) return;
-  S = local; API.legacy = false; tickCount = 0;
+  S = local; API.legacy = false; tickCount = 0; seedReactionState();
   log('Локальное сохранение импортировано', 'good'); render();
   if (await pushSave({ force: true, silent: true })) { try { localStorage.removeItem(KEY); } catch (err) { /* недоступно */ } }
 }
@@ -420,6 +520,7 @@ function sessionExpired() { resetSession(); showAuth('Сессия истекл�
 
 /** Вход в игру после авторизации: грузим сохранение с сервера. */
 async function enterGame() {
+  Speech.clear();
   showGame(); clearInterval(timer); timer = null;
   API.hold = null; API.dirty = false; API.legacy = false; tickCount = 0;
   fresh();
@@ -430,7 +531,7 @@ async function enterGame() {
   else if (r === 'error') { API.hold = 'noload'; log('Не удалось загрузить сохранение. Автосохранение выключено, чтобы не затереть прогресс.', 'bad'); }
   else await pushSave({ silent: true });          // новый аккаунт: создаём первое сохранение
   API.legacy = !!legacyRaw() && API.hold !== 'noload';
-  restartTimer(); render();
+  restartTimer(); render(); showResumeBubble();
 }
 
 async function logout() {
@@ -484,6 +585,7 @@ async function boot() {
 function fresh() {
   S = newState();
   for (let i = 0; i < C.candidates; i++) S.candidates.push(genCandidate());
+  seedReactionState();
   log(`Добро пожаловать! Наймите первых сотрудников. Цель: ${C.goal.customers} клиентов и репутация ${C.goal.reputation}.`);
 }
 
@@ -538,8 +640,11 @@ function renderOffice() {
     const e = S.employees.find(x => x.desk === i);
     if (!e) { desks.push(h('div', { class: 'desk empty' }, 'Свободное место')); continue; }
     const t = e.task ? C.tasks[e.task] : null, w = warnings(e);
-    desks.push(h('div', { class: `desk ${e.status}${e.id === S.selected ? ' sel' : ''}`, 'data-act': 'select', 'data-id': e.id,
+    const speech = Speech.getBubble(e.id);
+    const activeSpeech = speech ? speech.text : null;
+    desks.push(h('div', { class: `desk ${e.status}${e.id === S.selected ? ' sel' : ''}${activeSpeech ? ' speaking' : ''}`, 'data-act': 'select', 'data-id': e.id,
         role: 'button', tabindex: 0, 'aria-label': `Выбрать сотрудника ${e.name}` },
+      activeSpeech ? h('div', { class: 'speech-bubble', role: 'status', 'aria-live': 'polite' }, h('span', { class: 'speech-text' }, activeSpeech)) : null,
       h('div', { class: 'bubble' }, sprite(SPRITES.bubbles[e.status === 'work' ? e.task : e.status], 'ico')),
       w.length ? h('div', { class: 'warnflag', title: w.join('. ') }, '⚠') : null,
       sprite(SPRITES.roles[e.role], 'sprite'),

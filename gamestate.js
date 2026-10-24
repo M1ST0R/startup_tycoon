@@ -6,6 +6,7 @@ const ROLES = new Set(['dev', 'designer', 'marketer']);
 const TASKS = new Set(['code', 'ui', 'marketing']);
 const STATUSES = new Set(['work', 'rest', 'idle']);
 const LOG_TYPES = new Set(['good', 'warn', 'bad', 'info']);
+const FLAVOR_DEFAULTS = Object.freeze({ lastTick: -1000, cooldowns: {}, recent: [] });
 
 const fail = () => { throw new Error('invalid state'); };
 const int = (v, min, max) => (Number.isInteger(v) && v >= min && v <= max ? v : fail());
@@ -17,11 +18,31 @@ function person(p) {
   if (!p || typeof p !== 'object' || !ROLES.has(p.role) || !STATUSES.has(p.status)) fail();
   if (p.task !== null && !TASKS.has(p.task)) fail();
   return {
-    id: int(p.id, 0, 1e9), name: str(p.name, 24), role: p.role, spec: str(p.spec, 24),
+    id: int(p.id, 0, 1e9),
+    // Пустое/отсутствующее имя разрешено для старых сохранений: клиент назначит его без сброса прогресса.
+    name: typeof p.name === 'string' ? p.name.slice(0, 32) : '',
+    role: p.role, spec: str(p.spec, 24),
     skill: real(p.skill, 1, 10), salary: int(p.salary, 0, 1e6), speed: real(p.speed, 0.5, 2),
     energy: real(p.energy, 0, 100), mood: real(p.mood, 0, 100), task: p.task,
     progress: real(p.progress, 0, 1e4), status: p.status, desk: int(p.desk, -1, 99)
   };
+}
+
+function flavorState(value) {
+  const result = { ...FLAVOR_DEFAULTS, cooldowns: {}, recent: [] };
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return result;
+  if (Number.isInteger(value.lastTick) && value.lastTick >= -1e9 && value.lastTick <= 1e9) result.lastTick = value.lastTick;
+  if (value.cooldowns && typeof value.cooldowns === 'object' && !Array.isArray(value.cooldowns)) {
+    Object.entries(value.cooldowns).slice(0, 32).forEach(([key, tick]) => {
+      if (/^[a-zA-Z][a-zA-Z0-9]*$/u.test(key) && Number.isInteger(tick) && tick >= -1e9 && tick <= 1e9) {
+        result.cooldowns[key] = tick;
+      }
+    });
+  }
+  if (Array.isArray(value.recent)) {
+    result.recent = value.recent.slice(0, 14).filter(item => typeof item === 'string').map(item => item.slice(0, 80));
+  }
+  return result;
 }
 
 /** Возвращает «чистую» копию состояния или бросает ошибку, если данные некорректны. */
@@ -39,7 +60,9 @@ function normalizeState(s) {
     log: list(s.log, 40).map(l => {
       if (!l || typeof l !== 'object' || !LOG_TYPES.has(l.type)) fail();
       return { t: str(l.t, 30), text: str(l.text, 200), type: l.type };
-    })
+    }),
+    // Поле необязательно: состояние старых сохранений дополняется значениями по умолчанию.
+    flavor: flavorState(s.flavor)
   };
 }
 
