@@ -9,6 +9,62 @@
   if (typeof module !== 'undefined' && module.exports) module.exports = config;
   if (root) root.EmployeeConfig = config;
 })(typeof window !== 'undefined' ? window : globalThis, function buildEmployeeConfig() {
+  /*
+   * ЕДИНЫЙ БАЛАНС ИГРЫ. Экономика, сложности, сотрудники, навыки и задачи
+   * настраиваются здесь; script.js только использует готовые значения.
+   * Один игровой тик = один час, зарплата и аренда списываются раз в день.
+   */
+  const BASE = Object.freeze({
+    tickMs: 1000, speeds: Object.freeze([1, 2, 4]),
+    baseSpeed: 2.5,
+    workEnergy: 0.9, restEnergy: 5, idleEnergy: 0.5, autoRestBelow: 8, resumeAt: 95,
+    startDesks: 4, maxDesks: 10, desksPerUpgrade: 2, deskCost: 1500,
+    rentBase: 40, rentPerDesk: 15,
+    refreshCost: 100, candidates: 4,
+    // Доход с клиента за игровой час. Выручка считается максимум со 150 клиентов,
+    // чтобы число клиентов не превращало рекламу в неограниченный денежный эксплойт.
+    arpu: 0.10, customerIncomeCap: 150, maxCustomers: 1000, maxMoney: 1e12,
+    // Разовая страховка от софтлока: только если денег почти нет и команда пуста.
+    rescueThreshold: 250, rescueGrant: 5000,
+    autosaveTicks: 10, logMax: 40,
+    roles: Object.freeze({
+      dev: Object.freeze({ name: 'Разработчик', specs: Object.freeze(['Backend', 'Frontend', 'Mobile']), fit: Object.freeze({ code: 1.0, ui: 0.4, marketing: 0.2 }) }),
+      designer: Object.freeze({ name: 'Дизайнер', specs: Object.freeze(['UI', 'UX', 'Графика']), fit: Object.freeze({ code: 0.3, ui: 1.0, marketing: 0.4 }) }),
+      marketer: Object.freeze({ name: 'Маркетолог', specs: Object.freeze(['SMM', 'SEO', 'Контекст']), fit: Object.freeze({ code: 0.2, ui: 0.4, marketing: 1.0 }) })
+    }),
+    tasks: Object.freeze({
+      code: Object.freeze({ id: 'code', name: 'Разработка продукта', work: 30, desc: 'Продукт +4…8% за задачу. Без продукта клиенты почти не платят.' }),
+      ui: Object.freeze({ id: 'ui', name: 'Улучшение интерфейса', work: 24, desc: 'Репутация +1…2 и немного продукта.' }),
+      marketing: Object.freeze({ id: 'marketing', name: 'Рекламная кампания', work: 25, desc: 'Новые клиенты. Чем лучше продукт и репутация, тем их больше.' })
+    })
+  });
+
+  // Режимы меняют не только стартовый капитал: у каждого своя экономика,
+  // темп разработки, цены действий и интенсивность форс-мажоров.
+  const DIFFICULTIES = Object.freeze({
+    easy: Object.freeze({
+      name: 'Лёгкий', startingMoney: 8800, employeeSpeed: 1.15, projectComplexity: 0.82,
+      forceMajeureFrequency: 0.5, salaryMultiplier: 0.88, rentMultiplier: 0.82,
+      incomeMultiplier: 1.12, hireFeeMultiplier: 2.3, refreshCostMultiplier: 0.75,
+      deskCostMultiplier: 0.85, goal: Object.freeze({ customers: 80, reputation: 30 }),
+      description: 'Большой запас денег, дешёвая команда и быстрые проекты. Можно экспериментировать и исправлять ошибки.'
+    }),
+    medium: Object.freeze({
+      name: 'Нормальная', startingMoney: 7000, employeeSpeed: 1, projectComplexity: 1,
+      forceMajeureFrequency: 1, salaryMultiplier: 1, rentMultiplier: 1,
+      incomeMultiplier: 1, hireFeeMultiplier: 3, refreshCostMultiplier: 1,
+      deskCostMultiplier: 1, goal: Object.freeze({ customers: 100, reputation: 40 }),
+      description: 'Нужно сначала развить продукт, затем масштабировать клиентов. Резерв позволяет пережить несколько ошибок.'
+    }),
+    hardcore: Object.freeze({
+      name: 'Сложная', startingMoney: 6500, employeeSpeed: 0.88, projectComplexity: 1.22,
+      forceMajeureFrequency: 1.65, salaryMultiplier: 1.10, rentMultiplier: 1.17,
+      incomeMultiplier: 1.05, hireFeeMultiplier: 3.15, refreshCostMultiplier: 1.3,
+      deskCostMultiplier: 1.25, goal: Object.freeze({ customers: 150, reputation: 50 }),
+      description: 'Оклады и аренда выше, решения дороже, проекты медленнее, форс-мажоры чаще. Доход немного поддержан, чтобы цель оставалась проходимой.'
+    })
+  });
+
   const SKILLS = Object.freeze({
     backend: Object.freeze({ label: 'Backend', short: 'Backend' }),
     frontend: Object.freeze({ label: 'Frontend', short: 'Frontend' }),
@@ -58,6 +114,7 @@
   };
   const tierConfig = tier => TIERS[(safeTier(tier) || 1) - 1];
   const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+  const difficultyConfig = key => DIFFICULTIES[ key ] || DIFFICULTIES.medium;
   const asLevel = (value, tier) => {
     const range = tierConfig(tier).skillLevel;
     const n = Number(value);
@@ -76,9 +133,35 @@
     }, TIERS[0]).id;
   }
 
-  function salaryForTier(tier, random = Math.random) {
+  function salaryForTier(tier, random = Math.random, difficultyKey = 'medium') {
     const range = tierConfig(tier).salary;
-    return range.min + Math.floor(clamp(Number(random()) || 0, 0, 0.999999999) * (range.max - range.min + 1));
+    const roll = clamp(Number(random()) || 0, 0, 0.999999999);
+    const baseSalary = range.min + Math.floor(roll * (range.max - range.min + 1));
+    return Math.max(1, Math.round(baseSalary * difficultyConfig(difficultyKey).salaryMultiplier));
+  }
+
+  function rentForDesks(deskCount, difficultyKey = 'medium') {
+    const desks = clamp(Number.isFinite(Number(deskCount)) ? Number(deskCount) : BASE.startDesks, BASE.startDesks, BASE.maxDesks);
+    return Math.max(0, Math.round((BASE.rentBase + BASE.rentPerDesk * desks) * difficultyConfig(difficultyKey).rentMultiplier));
+  }
+
+  function incomePerTick(customerCount, product, difficultyKey = 'medium') {
+    const customers = clamp(Number.isFinite(Number(customerCount)) ? Number(customerCount) : 0, 0, BASE.customerIncomeCap);
+    const productValue = clamp(Number.isFinite(Number(product)) ? Number(product) : 0, 0, 100);
+    const productFactor = 0.3 + productValue / 100;
+    return Math.max(0, customers * BASE.arpu * productFactor * difficultyConfig(difficultyKey).incomeMultiplier);
+  }
+
+  function hireCost(salary, difficultyKey = 'medium') {
+    const safeSalary = clamp(Number.isFinite(Number(salary)) ? Number(salary) : 0, 0, 1e6);
+    return Math.max(0, Math.ceil(safeSalary * difficultyConfig(difficultyKey).hireFeeMultiplier));
+  }
+
+  function actionCost(action, difficultyKey = 'medium') {
+    const settings = difficultyConfig(difficultyKey);
+    if (action === 'refresh') return Math.max(1, Math.round(BASE.refreshCost * settings.refreshCostMultiplier));
+    if (action === 'desk') return Math.max(1, Math.round(BASE.deskCost * settings.deskCostMultiplier));
+    return 0;
   }
 
   function pickTier(random = Math.random) {
@@ -210,8 +293,9 @@
   }
 
   return Object.freeze({
-    SKILLS, TIERS, TASK_SKILLS, ROLE_WEIGHTS, SPEC_SKILLS,
-    tierConfig, safeTier, tierForSalary, salaryForTier, pickTier, generateSkills,
+    BASE, DIFFICULTIES, SKILLS, TIERS, TASK_SKILLS, ROLE_WEIGHTS, SPEC_SKILLS,
+    tierConfig, safeTier, tierForSalary, salaryForTier, rentForDesks, incomePerTick, hireCost, actionCost,
+    pickTier, generateSkills,
     normalizeEmployeeTraits, taskSkillKey, taskSkillLevel, improveTaskSkill
   });
 });

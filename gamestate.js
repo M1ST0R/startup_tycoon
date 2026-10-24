@@ -28,7 +28,7 @@ function person(p) {
     int(p.appearance.cloth, 0, 3);
     if (p.appearance.sprite !== undefined) int(p.appearance.sprite, 0, 19);
   }
-  const salary = int(p.salary, 0, 1e6);
+  const salary = int(p.salary, 1, 1e6);
   const traits = EmployeeConfig.normalizeEmployeeTraits(p);
   return {
     id, ...resolveIdentity(p),
@@ -65,11 +65,13 @@ function normalizeState(s) {
   return {
     v: 1,
     difficulty: DIFFICULTIES.has(s.difficulty) ? s.difficulty : 'medium',
-    money: real(s.money, 0, 1e12), rep: real(s.rep, 0, 100), product: real(s.product, 0, 100),
+    money: real(s.money, 0, EmployeeConfig.BASE.maxMoney), rep: real(s.rep, 0, 100), product: real(s.product, 0, 100),
     customers: int(s.customers, 0, 1e9), day: int(s.day, 1, 1e6), hour: int(s.hour, 0, 23),
     speed: [1, 2, 4].includes(s.speed) ? s.speed : fail(),
     desks: int(s.desks, 4, 10), nextId: int(s.nextId, 1, 1e9), won: typeof s.won === 'boolean' ? s.won : fail(),
     selected: s.selected === null ? null : int(s.selected, 0, 1e9),
+    // Старые сохранения не знают о страховке от финансового софтлока.
+    rescueUsed: typeof s.rescueUsed === 'boolean' ? s.rescueUsed : false,
     employees: list(s.employees, 10).map(person),
     candidates: list(s.candidates, 10).map(person),
     log: list(s.log, 40).map(l => {

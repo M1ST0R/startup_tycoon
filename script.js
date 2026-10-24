@@ -22,41 +22,11 @@ const SPRITES = {
 };
 
 /* =====================================================================
-   2. БАЛАНС — все числа игры в одном объекте.
-   Один тик = 1 игровой час, 24 тика = 1 день.
+   2. БАЛАНС — единая конфигурация находится в employee-config.js.
+   Здесь остаются только ссылки на конфиг, чтобы игровая логика не дублировала числа.
    ===================================================================== */
-const C = {
-  startMoney: 5000, tickMs: 1000, speeds: [1, 2, 4],
-  baseSpeed: 2.5,                // базовая скорость работы за тик
-  workEnergy: 0.9, restEnergy: 5, idleEnergy: 0.5, autoRestBelow: 8, resumeAt: 95,
-  startDesks: 4, maxDesks: 10, desksPerUpgrade: 2, deskCost: 1500,
-  rentBase: 40, rentPerDesk: 15, // аренда в день = base + perDesk * места
-  hireFeeMult: 3,                // цена найма = зарплата в день × это число
-  refreshCost: 100, candidates: 4,
-  arpu: 1.5,                     // доход с клиента за тик (умножается на 0.3 + продукт/100)
-  goal: { customers: 100, reputation: 40 },
-  autosaveTicks: 10, logMax: 40,
-  roles: {                       // fit — насколько роль подходит к каждой задаче
-    dev:      { name: 'Разработчик', specs: ['Backend', 'Frontend', 'Mobile'], fit: { code: 1.0, ui: 0.4, marketing: 0.2 } },
-    designer: { name: 'Дизайнер',    specs: ['UI', 'UX', 'Графика'],            fit: { code: 0.3, ui: 1.0, marketing: 0.4 } },
-    marketer: { name: 'Маркетолог',  specs: ['SMM', 'SEO', 'Контекст'],         fit: { code: 0.2, ui: 0.4, marketing: 1.0 } }
-  },
-  tasks: {                       // work — сколько «очков работы» нужно для завершения
-    code:      { id: 'code', name: 'Разработка продукта', work: 30, desc: 'Продукт +4…8% за задачу. Без продукта клиенты почти не платят.' },
-    ui:        { id: 'ui', name: 'Улучшение интерфейса', work: 24, desc: 'Репутация +1…2 и немного продукта.' },
-    marketing: { id: 'marketing', name: 'Рекламная кампания', work: 25, desc: 'Новые клиенты. Чем лучше продукт и репутация, тем их больше.' }
-  }
-};
-
-/* Сложность фиксируется на кампанию и влияет на работу, проекты и частоту форс-мажоров. */
-const DIFFICULTIES = Object.freeze({
-  easy: Object.freeze({ name: 'Лёгкий', employeeSpeed: 1.20, projectComplexity: 0.80, forceMajeureFrequency: 0.5,
-    goal: Object.freeze({ customers: 80, reputation: 30 }), description: 'Сотрудники работают на 20% быстрее, проекты требуют на 20% меньше работы. Цель: 80 клиентов и 30 репутации.' }),
-  medium: Object.freeze({ name: 'Средний', employeeSpeed: 1.00, projectComplexity: 1.00, forceMajeureFrequency: 1,
-    goal: Object.freeze({ customers: 100, reputation: 40 }), description: 'Стандартная скорость и сложность проектов. Цель: 100 клиентов и 40 репутации.' }),
-  hardcore: Object.freeze({ name: 'Хардкор', employeeSpeed: 0.75, projectComplexity: 1.50, forceMajeureFrequency: 2,
-    goal: Object.freeze({ customers: 180, reputation: 60 }), description: 'Сотрудники работают на 25% медленнее, проекты требуют на 50% больше работы. Цель: 180 клиентов и 60 репутации.' })
-});
+const C = EmployeeConfig.BASE;
+const DIFFICULTIES = EmployeeConfig.DIFFICULTIES;
 const STATUS = { work: 'Работает', rest: 'Отдыхает', idle: 'Бездействует' };
 const KEY = 'startupTycoon.save.v1';   // ключ СТАРОГО локального сохранения (используется только для импорта)
 
@@ -77,17 +47,20 @@ const fmt = n => '$' + Math.floor(n).toLocaleString('ru-RU');
 const $ = id => document.getElementById(id);
 const sel = () => S.employees.find(e => e.id === S.selected) || null;
 const timeStr = () => `День ${S.day}, ${String(S.hour).padStart(2, '0')}:00`;
-const rentCost = () => C.rentBase + C.rentPerDesk * S.desks;
+const rentCost = () => EmployeeConfig.rentForDesks(S.desks, S.difficulty);
 const salaries = () => S.employees.reduce((s, e) => s + e.salary, 0);
-const incomeTick = () => S.customers * C.arpu * (0.3 + S.product / 100);
+const incomeTick = () => S ? EmployeeConfig.incomePerTick(S.customers, S.product, S.difficulty) : 0;
+const hireCost = candidate => EmployeeConfig.hireCost(candidate.salary, S.difficulty);
+const candidateRefreshCost = () => EmployeeConfig.actionCost('refresh', S.difficulty);
+const deskUpgradeCost = () => EmployeeConfig.actionCost('desk', S.difficulty);
 
 function defaultFlavorState() {
   return { lastTick: -1000, cooldowns: {}, recent: [] };
 }
 
 function newState() {
-  return { v: 1, difficulty: 'medium', money: C.startMoney, rep: 0, product: 0, customers: 0, day: 1, hour: 9, speed: 1,
-           desks: C.startDesks, nextId: 1, employees: [], candidates: [], log: [], won: false, selected: null,
+  return { v: 1, difficulty: 'medium', money: DIFFICULTIES.medium.startingMoney, rep: 0, product: 0, customers: 0, day: 1, hour: 9, speed: 1,
+           desks: C.startDesks, nextId: 1, employees: [], candidates: [], log: [], won: false, selected: null, rescueUsed: false,
            flavor: defaultFlavorState() };
 }
 
@@ -163,12 +136,13 @@ function genCandidate() {
   const tier = EmployeeConfig.pickTier();
   const skills = EmployeeConfig.generateSkills(role, tier, Math.random, spec);
   const skill = Math.max(1, ...Object.values(skills)); // Совместимость со старым полем опыта в репликах.
+  const salary = EmployeeConfig.salaryForTier(tier, Math.random, S.difficulty);
   const taken = new Set([...S.employees, ...S.candidates].map(p => p.name).filter(Boolean));
   const gender = pick(['male', 'female']);
   const spriteIndex = pick(CharacterArt.spriteIndices[gender]);
   const appearance = { hair: Math.floor(spriteIndex / 3), cloth: spriteIndex % 3, sprite: spriteIndex };
   return { id: S.nextId++, gender, appearance, name: StartupNameGenerator.generate(taken, gender), role, spec,
-           tier, skills, skill, salary: EmployeeConfig.salaryForTier(tier), speed: +(0.8 + Math.random() * 0.4).toFixed(2),
+           tier, skills, skill, salary, speed: +(0.8 + Math.random() * 0.4).toFixed(2),
            energy: 100, mood: rnd(60, 90), task: null, progress: 0, status: 'idle', desk: -1 };
 }
 
@@ -207,8 +181,9 @@ function completeTask(e, t) {
     msg = `репутация +${(S.rep - r0).toFixed(1)}`;
   } else {
     const g = Math.max(1, Math.round((3 + taskLevel * 1.2) * (0.25 + S.product / 100) * (1 + S.rep / 100)));
-    S.customers += g;
-    msg = `клиенты +${g}`;
+    const added = Math.min(g, Math.max(0, C.maxCustomers - S.customers));
+    S.customers += added;
+    msg = `клиенты +${added}`;
   }
   if (skillGrowth && skillGrowth.improved) {
     log(`${e.name} улучшил навык «${EmployeeConfig.SKILLS[skillGrowth.key].label}»: ${skillGrowth.next}/10`, 'good');
@@ -287,6 +262,13 @@ function payDay() {
     }
   });
   log(`Конец дня: выплачено ${fmt(paid)}`, missed ? 'bad' : 'info');
+  // Одноразовый спасательный контракт защищает кампанию от безвыходного состояния:
+  // без сотрудников и почти без денег игрок иначе не может ни работать, ни нанимать.
+  if (!S.rescueUsed && S.employees.length === 0 && S.money < C.rescueThreshold) {
+    S.money = Math.min(C.maxMoney, S.money + C.rescueGrant);
+    S.rescueUsed = true;
+    log(`🛟 Антикризисный контракт: +${fmt(C.rescueGrant)}. Используйте резерв, чтобы нанять сотрудника и восстановить доход.`, 'good');
+  }
   if (S.money < (rent + salaries()) * 2) {
     log('Денег хватит меньше чем на 2 дня расходов', 'warn');
     flavor('moneyLow', flavorContext(null), { type: 'warn' });
@@ -339,7 +321,7 @@ function tick() {
     S.hour++;
     if (S.hour >= 24) { S.hour = 0; S.day++; payDay(); }
     S.employees.forEach(workEmployee);
-    S.money += incomeTick();
+    S.money = Math.min(C.maxMoney, Math.max(0, S.money + incomeTick()));
     evaluateReactions();
     if (Math.random() < StartupOfficeDialogue.CONFIG.rareTickChance) {
       const chosen = sel();
@@ -363,11 +345,11 @@ function hire(id) {
   if (i < 0) return;
   const c = S.candidates[i];
   c.tier = EmployeeConfig.safeTier(c.tier) || 1;
-  const salaryRange = EmployeeConfig.tierConfig(c.tier).salary;
   const candidateSalary = Number(c.salary);
   c.salary = Number.isFinite(candidateSalary)
-    ? Math.max(salaryRange.min, Math.min(salaryRange.max, Math.floor(candidateSalary))) : salaryRange.min;
-  const fee = Math.max(0, Math.floor(c.salary * C.hireFeeMult));
+    ? Math.max(1, Math.min(1e6, Math.floor(candidateSalary)))
+    : EmployeeConfig.salaryForTier(c.tier, () => 0, S.difficulty);
+  const fee = hireCost(c);
   if (S.employees.length >= S.desks) return log('Нет свободных мест: расширьте офис', 'bad');
   if (S.money < fee) return log(`Не хватает денег на найм ${c.name}: нужно ${fmt(fee)}`, 'bad');
   S.money = Math.max(0, S.money - fee);
@@ -418,13 +400,13 @@ function act(ev) {
       } break;
     case 'hire': hire(+el.dataset.id); break;
     case 'refresh':
-      if (S.money < C.refreshCost) log('Не хватает денег на обновление списка', 'bad');
-      else { S.money -= C.refreshCost; S.candidates = []; for (let i = 0; i < C.candidates; i++) S.candidates.push(genCandidate()); log('Список кандидатов обновлён'); }
+      if (S.money < candidateRefreshCost()) log(`Не хватает денег на обновление списка: нужно ${fmt(candidateRefreshCost())}`, 'bad');
+      else { S.money -= candidateRefreshCost(); S.candidates = []; for (let i = 0; i < C.candidates; i++) S.candidates.push(genCandidate()); log('Список кандидатов обновлён'); }
       break;
     case 'expand':
       if (S.desks >= C.maxDesks) break;
-      if (S.money < C.deskCost) log(`Не хватает денег на расширение: нужно ${fmt(C.deskCost)}`, 'bad');
-      else { S.money -= C.deskCost; S.desks = Math.min(C.maxDesks, S.desks + C.desksPerUpgrade); log(`Офис расширен: мест ${S.desks}`, 'good'); }
+      if (S.money < deskUpgradeCost()) log(`Не хватает денег на расширение: нужно ${fmt(deskUpgradeCost())}`, 'bad');
+      else { S.money -= deskUpgradeCost(); S.desks = Math.min(C.maxDesks, S.desks + C.desksPerUpgrade); log(`Офис расширен: мест ${S.desks}`, 'good'); }
       break;
     case 'pause': paused = !paused; restartTimer(); break;
     case 'speed': S.speed = C.speeds.includes(+el.dataset.v) ? +el.dataset.v : 1; restartTimer(); break;
@@ -478,7 +460,7 @@ function cleanPerson(r) {
   if (status === 'idle' && task) status = 'work';
   return { id, name, ...identity, role: r.role,
            spec: String(r.spec || '').slice(0, 24), skill: legacySkill, tier: traits.tier, skills: traits.skills,
-           salary: Math.floor(num(r.salary, EmployeeConfig.tierConfig(traits.tier).salary.min, 0, 1e6)),
+           salary: Math.floor(num(r.salary, EmployeeConfig.tierConfig(traits.tier).salary.min, 1, 1e6)),
            speed: num(r.speed, 1, 0.5, 2), energy: num(r.energy, 100, 0, 100), mood: num(r.mood, 70, 0, 100),
            task, progress: num(r.progress, 0, 0, 1e4), status, desk: Math.floor(num(r.desk, -1, -1, 99)) };
 }
@@ -487,12 +469,13 @@ function cleanPerson(r) {
 function sanitize(r) {
   if (!r || typeof r !== 'object') throw new Error('Некорректное сохранение');
   const s = newState();
-  s.money = num(r.money, s.money, 0, 1e12); s.rep = num(r.rep, 0, 0, 100);
+  s.money = num(r.money, s.money, 0, C.maxMoney); s.rep = num(r.rep, 0, 0, 100);
   s.product = num(r.product, 0, 0, 100); s.customers = Math.floor(num(r.customers, 0, 0, 1e9));
   s.day = Math.floor(num(r.day, 1, 1, 1e6)); s.hour = Math.floor(num(r.hour, 9, 0, 23));
   s.speed = C.speeds.includes(r.speed) ? r.speed : 1;
   s.difficulty = DIFFICULTIES[r.difficulty] ? r.difficulty : 'medium';
   s.desks = Math.floor(num(r.desks, C.startDesks, C.startDesks, C.maxDesks)); s.won = !!r.won;
+  s.rescueUsed = typeof r.rescueUsed === 'boolean' ? r.rescueUsed : false;
   s.employees = (Array.isArray(r.employees) ? r.employees : []).map(cleanPerson).filter(Boolean).slice(0, s.desks);
   const used = new Set();
   s.employees.forEach(e => { if (e.desk < 0 || e.desk >= s.desks || used.has(e.desk)) e.desk = -1; else used.add(e.desk); });
@@ -502,7 +485,7 @@ function sanitize(r) {
   const people = [...s.employees, ...s.candidates];
   const usedNames = new Set(people.map(p => p.name.trim()).filter(n => n && n !== 'Без имени'));
   const originalPeople = [...(Array.isArray(r.employees) ? r.employees : []), ...(Array.isArray(r.candidates) ? r.candidates : [])];
-  let migratedState = !r.flavor || !DIFFICULTIES[r.difficulty] || people.some(person => {
+  let migratedState = !r.flavor || !DIFFICULTIES[r.difficulty] || typeof r.rescueUsed !== 'boolean' || people.some(person => {
     const original = originalPeople.find(p => p && p.id === person.id);
     return !original || original.gender !== person.gender
       || JSON.stringify(original.appearance) !== JSON.stringify(person.appearance)
@@ -713,6 +696,7 @@ function fresh(difficulty = 'medium') {
   officePage = 0;
   S = newState();
   S.difficulty = DIFFICULTIES[difficulty] ? difficulty : 'medium';
+  S.money = difficultyConfig().startingMoney;
   for (let i = 0; i < C.candidates; i++) S.candidates.push(genCandidate());
   seedReactionState();
   const goal = goalForDifficulty();
@@ -737,7 +721,7 @@ function renderDifficultySetup() {
     button.classList.toggle('selected', selected);
     button.setAttribute('aria-pressed', String(selected));
   });
-  $('difficultyDetails').textContent = `${cfg.description} Частота форс-мажоров: ×${cfg.forceMajeureFrequency} .`;
+  $('difficultyDetails').textContent = `${cfg.description} Стартовый капитал: ${fmt(cfg.startingMoney)}. Скорость ×${cfg.employeeSpeed.toFixed(2)}, трудоёмкость ×${cfg.projectComplexity.toFixed(2)}, аренда ×${cfg.rentMultiplier.toFixed(2)}, оклады ×${cfg.salaryMultiplier.toFixed(2)}, доход ×${cfg.incomeMultiplier.toFixed(2)}, найм ×${cfg.hireFeeMultiplier.toFixed(2)}, форс-мажоры ×${cfg.forceMajeureFrequency}. Цель: ${cfg.goal.customers} клиентов и ${cfg.goal.reputation} репутации.`;
   $('difficultyTitle').textContent = difficultyResetMode ? 'Выбери сложность новой кампании' : 'Выбери сложность';
   document.querySelector('[data-act="start-difficulty"]').textContent = difficultyResetMode ? 'Начать новую кампанию' : 'Начать игру';
 }
@@ -814,6 +798,7 @@ function renderTop() {
   $('sProd').textContent = `${Math.floor(S.product)}%`;
   $('sCust').textContent = S.customers;
   $('sInc').textContent = fmt(incomeTick() * 24);
+  $('sInc').title = `Выручка ограничена базой ${C.customerIncomeCap} оплачиваемых клиентов; фактически учитывается ${Math.min(C.customerIncomeCap, S.customers)}.`;
   $('sExp').textContent = fmt(exp);
   $('sTime').textContent = timeStr();
   $('bPause').textContent = paused ? 'Продолжить' : 'Пауза';
@@ -865,8 +850,8 @@ function renderOffice() {
       h('span', {}, `Комната ${officePage + 1} / ${pages}`),
       h('button', { class: 'btn sec', type: 'button', 'data-act': 'officeNext', disabled: officePage === pages - 1 }, '→')) : null,
     S.desks < C.maxDesks
-      ? h('button', { class: 'btn sec' + (S.money < C.deskCost ? ' off' : ''), type: 'button', 'data-act': 'expand' },
-          `Расширить офис: +${C.desksPerUpgrade} места (${fmt(C.deskCost)})`)
+      ? h('button', { class: 'btn sec' + (S.money < deskUpgradeCost() ? ' off' : ''), type: 'button', 'data-act': 'expand' },
+          `Расширить офис: +${C.desksPerUpgrade} места (${fmt(deskUpgradeCost())})`)
       : h('span', { class: 'mute' }, 'Офис максимального размера.'),
     h('span', { class: 'mute' }, `Мест занято: ${S.employees.length}/${S.desks}. Аренда: ${fmt(rentCost())} в день.`)
   ]);
@@ -913,7 +898,7 @@ function renderTasks() {
 
 function renderHire() {
   const items = S.candidates.map(c => {
-    const fee = c.salary * C.hireFeeMult;
+    const fee = hireCost(c);
     return h('div', { class: 'cand' }, portrait(c, 'avatar--card'),
       h('div', { class: 'cinfo' }, h('b', {}, c.name),
         h('div', { class: 'mute' }, `${C.roles[c.role].name} · ${c.spec}`),
@@ -928,8 +913,8 @@ function renderHire() {
     h('div', { class: 'tier-probabilities' },
       h('b', {}, 'Вероятность появления тиров'),
       h('div', { class: 'mute' }, chances)),
-    h('div', { class: 'foot' }, h('button', { class: 'btn sec' + (S.money < C.refreshCost ? ' off' : ''), type: 'button', 'data-act': 'refresh' },
-      `Обновить список (${fmt(C.refreshCost)})`))
+    h('div', { class: 'foot' }, h('button', { class: 'btn sec' + (S.money < candidateRefreshCost() ? ' off' : ''), type: 'button', 'data-act': 'refresh' },
+      `Обновить список (${fmt(candidateRefreshCost())})`))
   ]);
 }
 
