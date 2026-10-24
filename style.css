@@ -85,3 +85,13 @@ input:focus-visible{border-color:var(--gold)}
 .notice{max-width:1200px;margin:12px auto 0;padding:0 12px;display:grid;gap:8px}
 .nrow{background:#4a3a14;border:2px solid var(--gold);border-radius:8px;padding:10px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .nrow span{flex:1 1 260px}
+
+
+/* Форс-мажоры: отдельный модальный слой поверх игрового интерфейса */
+.fm-backdrop{position:fixed;inset:0;z-index:10000;background:rgba(3,9,16,.78);display:grid;place-items:center;padding:18px}
+.fm-backdrop[hidden]{display:none}
+.fm-modal{width:min(540px,100%);max-height:90vh;overflow:auto;background:var(--panel);border:1px solid var(--line);border-top:4px solid var(--gold);border-radius:12px;padding:24px;box-shadow:0 22px 80px #0009}
+.fm-kicker{display:flex;align-items:center;gap:9px;font-size:13px;font-weight:700;margin-bottom:12px}
+.fm-modal h2{font-size:21px;margin-bottom:10px}.fm-modal p{color:var(--mute);margin:0 0 20px}
+.fm-choices{display:flex;flex-wrap:wrap;gap:9px}.fm-choices .btn{flex:1 1 42%;min-height:42px}
+body.fm-open{overflow:hidden}

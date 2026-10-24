@@ -54,7 +54,7 @@ const KEY = 'startupTycoon.save.v1';   // ключ СТАРОГО локальн
    3. СОСТОЯНИЕ ИГРЫ
    ===================================================================== */
 let S;                 // текущее состояние (сохраняется целиком)
-let timer = null, paused = false, tickCount = 0;
+let timer = null, paused = false, tickCount = 0, fmPausedBefore = false;
 // Система реплик вынесена в speech-system.js; здесь остаётся только интеграция с игрой.
 
 const num = (v, def, min, max) => { const n = Number(v); return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : def; };
@@ -267,9 +267,27 @@ function checkGoal() {
   }
 }
 
+function forceMajeureDeps() {
+  return {
+    getState: () => S,
+    pause: value => {
+      if (value) { fmPausedBefore = paused; paused = true; document.body.classList.add('fm-open'); }
+      else { paused = fmPausedBefore; document.body.classList.remove('fm-open'); }
+      restartTimer();
+    },
+    render: () => { if (S) { API.dirty = true; render(); } },
+    onApplied: (event, choice, effects) => {
+      API.dirty = true;
+      log(`Форс-мажор «${event.title}»: ${choice.label}`, 'warn');
+    }
+  };
+}
+
 function tick() {
   if (!S) return;
   try {
+    if (window.ForceMajeureSystem) ForceMajeureSystem.onTick(S, forceMajeureDeps());
+    if (paused) return;
     S.hour++;
     if (S.hour >= 24) { S.hour = 0; S.day++; payDay(); }
     S.employees.forEach(workEmployee);
@@ -302,6 +320,7 @@ function hire(id) {
   const used = new Set(S.employees.map(e => e.desk));
   c.desk = 0; while (used.has(c.desk)) c.desk++;
   S.employees.push(c);
+  if (window.ForceMajeureSystem) ForceMajeureSystem.onHire(S, forceMajeureDeps());
   S.selected = c.id;
   syncEmployeeReaction(c);
   if (!flavor('hire', flavorContext(c), { force: true, type: 'good' })) {
@@ -753,4 +772,5 @@ window.addEventListener('pagehide', flush);
 document.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)));
 $('formLogin').addEventListener('submit', ev => submitAuth('login', ev));
 $('formRegister').addEventListener('submit', ev => submitAuth('register', ev));
+if (window.ForceMajeureSystem) ForceMajeureSystem.init();
 boot();
