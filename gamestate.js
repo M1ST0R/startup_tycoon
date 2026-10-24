@@ -22,6 +22,8 @@ function person(p) {
   const appearance = p.appearance == null ? oldLook : {
     hair: int(p.appearance.hair, 0, 63), cloth: int(p.appearance.cloth, 0, 3)
   };
+  if (p.appearance && p.appearance.sprite !== undefined)
+    appearance.sprite = int(p.appearance.sprite, 0, 19);
   return {
     id, appearance, name: str(p.name, 24), role: p.role, spec: str(p.spec, 24),
     skill: real(p.skill, 1, 10), salary: int(p.salary, 0, 1e6), speed: real(p.speed, 0.5, 2),

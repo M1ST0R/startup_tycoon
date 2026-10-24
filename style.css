@@ -35,20 +35,17 @@ overflow:hidden;border-radius:6px;isolation:isolate}
 .seat-desk{position:absolute;z-index:2;top:42%;left:0;width:100%;height:auto;pointer-events:none;image-rendering:pixelated}
 .seat-bubble,.seat-warning{position:absolute;z-index:3;top:0;background:#fff;color:#172132;border-radius:50%;padding:2px 5px;line-height:1}
 .seat-bubble{right:15%}.seat-warning{left:12%;background:var(--coral)}
+.seat-energy{position:absolute;z-index:3;top:-22px;left:50%;transform:translateX(-50%);padding:2px 5px;background:#172132;color:var(--text);border:1px solid var(--gold);border-radius:5px;white-space:nowrap;font-size:12px;line-height:1}
 .office-roster{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-top:8px}
 .office-person{display:flex;gap:6px;align-items:center;min-width:0;padding:5px 7px;background:var(--ink);border:1px solid var(--line);border-radius:5px;font-size:12px}
 .office-person.sel{border-color:var(--gold)}
 .office-person button{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:0;background:none;color:var(--text);cursor:pointer;font:inherit;text-align:left}
 .office-pages{display:flex;align-items:center;gap:8px;margin-right:auto}.office-pages .btn{min-width:40px;padding:5px 9px}
 .office-pages button:disabled{opacity:.45;cursor:default}
-.avatar{position:relative;display:inline-block;flex:none;width:56px;height:88px;overflow:hidden;image-rendering:pixelated;vertical-align:middle}
-.avatar-face{position:absolute;z-index:1;left:34%;top:11%;width:32%;height:27%;border:2px solid #674634;background:#dca479;border-radius:25% 25% 38% 38%}
-.avatar-neck{position:absolute;left:43%;top:35%;width:14%;height:9%;background:#bb7959}
-.avatar-arms{position:absolute;left:20%;top:39%;width:60%;height:23%;background:#dca479;border-radius:30%}
-.avatar-clothes{position:absolute;z-index:2;left:15%;top:37%;width:70%;height:auto;image-rendering:pixelated}
-.avatar-hair{position:absolute;z-index:3;left:16%;top:0;width:68%;height:43%;object-fit:fill;image-rendering:pixelated}
-.avatar--office{position:absolute;z-index:1;left:37%;top:0;width:26%;height:54%;pointer-events:none}
-.avatar--card{width:58px;height:88px;background:#344359;border-radius:5px}
+.avatar{position:relative;display:inline-grid;place-items:center;flex:none;width:72px;aspect-ratio:1;overflow:hidden;image-rendering:pixelated;vertical-align:middle}
+.avatar-sprite{position:absolute;inset:0;display:block;width:100%;height:100%;object-fit:contain;object-position:center bottom;image-rendering:pixelated}
+.avatar--office{position:absolute;z-index:1;left:30.5%;top:2%;width:39%;aspect-ratio:100/178;pointer-events:none}
+.avatar--card{background:#344359;border-radius:5px}
 .sprite{display:block;font-size:38px;height:48px;line-height:48px;image-rendering:pixelated}
 img.sprite{width:48px;height:48px;object-fit:contain;margin:0 auto}
 .sprite.sm{flex:none;width:48px}

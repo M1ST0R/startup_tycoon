@@ -46,7 +46,8 @@ const C = {
     ui:        { id: 'ui', name: 'Улучшение интерфейса', work: 24, desc: 'Репутация +1…2 и немного продукта.' },
     marketing: { id: 'marketing', name: 'Рекламная кампания', work: 25, desc: 'Новые клиенты. Чем лучше продукт и репутация, тем их больше.' }
   },
-  names: ['Аня', 'Михаил', 'Света', 'Игорь', 'Катя', 'Денис', 'Лена', 'Артём', 'Оля', 'Паша', 'Рита', 'Глеб', 'Тимур', 'Юля']
+  names: ['Аня', 'Михаил', 'Света', 'Игорь', 'Катя', 'Денис', 'Лена', 'Артём', 'Оля', 'Паша', 'Рита', 'Глеб', 'Тимур', 'Юля'],
+  nameGender: { female: [0, 2, 4, 6, 8, 10, 13], male: [1, 3, 5, 7, 9, 11, 12] }
 };
 const STATUS = { work: 'Работает', rest: 'Отдыхает', idle: 'Бездействует' };
 const KEY = 'startupTycoon.save.v1';   // ключ СТАРОГО локального сохранения (используется только для импорта)
@@ -60,6 +61,13 @@ let timer = null, paused = false, tickCount = 0, officePage = 0;
 const num = (v, def, min, max) => { const n = Number(v); return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : def; };
 const rnd = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
 const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+const genderForName = name => {
+  const index = C.names.indexOf(name);
+  if (C.nameGender.female.includes(index)) return 'female';
+  if (C.nameGender.male.includes(index)) return 'male';
+  return null;
+};
+const portrait = (person, mode) => CharacterArt.portrait(person, mode, genderForName(person.name));
 const fmt = n => '$' + Math.floor(n).toLocaleString('ru-RU');
 const $ = id => document.getElementById(id);
 const sel = () => S.employees.find(e => e.id === S.selected) || null;
@@ -87,11 +95,14 @@ function genCandidate() {
   const role = pick(Object.keys(C.roles)), R = C.roles[role];
   const skill = Math.min(8, 1 + rnd(0, 2 + Math.floor(S.rep / 15)));
   const taken = new Set([...S.employees, ...S.candidates].map(p => p.name));
-  const free = C.names.filter(n => !taken.has(n));
-  return { id: S.nextId++, name: pick(free.length ? free : C.names), role, spec: pick(R.specs), skill,
+  const free = C.names.map((_, i) => i).filter(i => !taken.has(C.names[i]));
+  const nameIndex = pick(free.length ? free : C.names.map((_, i) => i));
+  const name = C.names[nameIndex];
+  const spriteIndex = pick(CharacterArt.spriteIndices[genderForName(name)]);
+  return { id: S.nextId++, name, role, spec: pick(R.specs), skill,
            salary: R.baseSalary + skill * C.salaryPerSkill, speed: +(0.8 + Math.random() * 0.4).toFixed(2),
            energy: 100, mood: rnd(60, 90), task: null, progress: 0, status: 'idle', desk: -1,
-           appearance: { hair: rnd(0, 63), cloth: rnd(0, 3) } };
+           appearance: { hair: Math.floor(spriteIndex / 3), cloth: spriteIndex % 3, sprite: spriteIndex } };
 }
 
 /** Эффективность = базовая скорость × скорость сотрудника × пригодность роли × навык × энергия × настроение. */
@@ -301,6 +312,7 @@ function cleanPerson(r) {
     hair: Math.floor(num(look.hair, oldLook.hair, 0, 63)),
     cloth: Math.floor(num(look.cloth, oldLook.cloth, 0, 3))
   };
+  if (Number.isInteger(look.sprite) && look.sprite >= 0 && look.sprite < 20) appearance.sprite = look.sprite;
   const task = C.tasks[r.task] ? r.task : null;
   let status = ['work', 'rest', 'idle'].includes(r.status) ? r.status : 'idle';
   if (status === 'work' && !task) status = 'idle';
@@ -559,19 +571,23 @@ function renderOffice() {
     const i = officePage * 4 + slot;
     if (i >= S.desks) continue;
     const e = S.employees.find(x => x.desk === i);
+    const isSelected = !!e && e.id === S.selected;
     const w = e ? warnings(e) : [];
-    seats.push(h('div', { class: `office-seat slot-${slot}${e ? ` ${e.status}` : ' empty'}${e && e.id === S.selected ? ' sel' : ''}`,
+    seats.push(h('div', { class: `office-seat slot-${slot}${e ? ` ${e.status}` : ' empty'}${isSelected ? ' sel' : ''}`,
       'data-act': e ? 'select' : null, 'data-id': e ? e.id : null,
       role: e ? 'button' : null, tabindex: e ? 0 : null,
       'aria-label': e ? `Выбрать сотрудника ${e.name}` : null },
-      e ? CharacterArt.portrait(e, 'avatar--office') : null,
+      e ? portrait(e, 'avatar--office') : null,
       CharacterArt.desk(i),
-      e ? h('span', { class: 'seat-bubble', 'aria-hidden': 'true' }, sprite(SPRITES.bubbles[e.status === 'work' ? e.task : e.status], 'ico')) : null,
+      isSelected ? h('span', { class: 'seat-bubble', 'aria-hidden': 'true',
+        title: e.task ? C.tasks[e.task].name : STATUS[e.status] },
+        sprite(SPRITES.bubbles[e.status === 'work' ? e.task : e.status], 'ico')) : null,
+      isSelected ? h('span', { class: 'seat-energy', 'aria-hidden': 'true' }, `⚡ ${Math.round(e.energy)}%`) : null,
       w.length ? h('span', { class: 'seat-warning', title: w.join('. ') }, '⚠') : null));
-    roster.push(h('div', { class: `office-person${e && e.id === S.selected ? ' sel' : ''}` },
+    roster.push(h('div', { class: `office-person${isSelected ? ' sel' : ''}` },
       h('span', { class: 'mute' }, `Место ${i + 1}`),
       e ? h('button', { type: 'button', 'data-act': 'select', 'data-id': e.id },
-        e.name, ' · ', e.status === 'work' && e.task ? C.tasks[e.task].name : STATUS[e.status])
+        e.name, ' · ', isSelected && e.status === 'work' && e.task ? C.tasks[e.task].name : STATUS[e.status])
         : h('span', {}, 'Свободно')));
   }
   fill($('office'), [h('div', { class: 'office-scene' }, seats), h('div', { class: 'office-roster' }, roster)]);
@@ -593,7 +609,7 @@ function renderPanel() {
   if (!e) { fill(box, [h('p', { class: 'mute' }, 'Нажмите на сотрудника в офисе, чтобы увидеть его параметры и управлять им.')]); return; }
   const t = e.task ? C.tasks[e.task] : null;
   fill(box, [
-    h('div', { class: 'ehead' }, CharacterArt.portrait(e, 'avatar--card'),
+    h('div', { class: 'ehead' }, portrait(e, 'avatar--card'),
       h('div', {}, h('h3', {}, e.name), h('div', { class: 'mute' }, `${C.roles[e.role].name} · ${e.spec}`),
         h('span', { class: 'badge ' + e.status }, STATUS[e.status]))),
     stat('Уровень навыка', `${e.skill.toFixed(1)} / 10`, e.skill, 10, 'sk'),
@@ -614,11 +630,9 @@ function renderPanel() {
 function renderTasks() {
   const s = sel();
   fill($('tasks'), Object.values(C.tasks).map(t => {
-    const who = S.employees.filter(e => e.task === t.id).map(e => e.name);
     return h('div', { class: 'task' },
       h('div', {}, sprite(SPRITES.bubbles[t.id], 'ico'), ' ', h('b', {}, t.name)),
       h('p', { class: 'mute' }, t.desc),
-      h('div', { class: 'mute' }, 'Работают: ' + (who.join(', ') || 'никто')),
       s ? h('div', { class: 'mute' }, `${s.name}: эффективность ${Math.round(efficiency(s, t.id) / C.baseSpeed * 100)}%`) : null,
       h('button', { class: 'btn' + (s ? '' : ' off'), type: 'button', 'data-act': 'assign', 'data-task': t.id },
         s ? `Назначить: ${s.name}` : 'Сначала выберите сотрудника'));
@@ -628,7 +642,7 @@ function renderTasks() {
 function renderHire() {
   const items = S.candidates.map(c => {
     const fee = c.salary * C.hireFeeMult;
-    return h('div', { class: 'cand' }, CharacterArt.portrait(c, 'avatar--card'),
+    return h('div', { class: 'cand' }, portrait(c, 'avatar--card'),
       h('div', { class: 'cinfo' }, h('b', {}, c.name),
         h('div', { class: 'mute' }, `${C.roles[c.role].name} · ${c.spec}`),
         h('div', { class: 'mute' }, `Навык ${c.skill} · скорость ×${c.speed.toFixed(2)} · ${fmt(c.salary)} в день`)),
