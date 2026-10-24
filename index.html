@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Стартап-тайкун</title>
-<link rel="stylesheet" href="style.css?v=modular-speech-4">
+<link rel="stylesheet" href="style.css?v=difficulty-system-1">
 </head>
 <body>
 <div id="authView" hidden>
@@ -31,6 +31,29 @@
 </div>
 
 <div id="gameView" hidden>
+<div id="difficultySetup" class="difficulty-screen" hidden role="dialog" aria-modal="true" aria-labelledby="difficultyTitle">
+  <div class="difficulty-card">
+    <p class="difficulty-kicker">STARTUP TYCOON / НОВАЯ КАМПАНИЯ</p>
+    <h2 id="difficultyTitle">Выбери сложность</h2>
+    <p class="mute">На хардкоре придётся следить за бюджетом, усталостью команды и тем, какие задачи вы берёте.</p>
+    <div class="difficulty-options">
+      <button class="difficulty-option" type="button" data-act="diff-select" data-v="easy">
+        <span class="diff-emoji">🌱</span><b>Лёгкий</b><small>Для знакомства с игрой</small><span>Работа ×1,20 · проекты ×0,80</span>
+      </button>
+      <button class="difficulty-option selected" type="button" data-act="diff-select" data-v="medium">
+        <span class="diff-emoji">⚖️</span><b>Средний</b><small>Сбалансированный режим</small><span>Работа ×1,00 · проекты ×1,00</span>
+      </button>
+      <button class="difficulty-option" type="button" data-act="diff-select" data-v="hardcore">
+        <span class="diff-emoji">🔥</span><b>Хардкор</b><small>Каждый день на счету</small><span>Работа ×0,75 · проекты ×1,50</span>
+      </button>
+    </div>
+    <p id="difficultyDetails" class="difficulty-details" aria-live="polite"></p>
+    <div class="difficulty-actions">
+      <button class="btn" type="button" data-act="start-difficulty">Начать игру</button>
+      <button class="btn sec" type="button" data-act="cancel-difficulty" id="cancelDifficulty" hidden>Вернуться в игру</button>
+    </div>
+  </div>
+</div>
 <header id="top">
   <div class="acct">
     <h1>Стартап-тайкун</h1>
@@ -77,6 +100,6 @@
 <script src="name-generator.js?v=modular-speech-4"></script>
 <script src="office-dialogue.js?v=modular-speech-4"></script>
 <script src="speech-system.js?v=modular-speech-4"></script>
-<script src="script.js?v=modular-speech-4"></script>
+<script src="script.js?v=difficulty-system-1"></script>
 </body>
 </html>

@@ -47,6 +47,17 @@ const C = {
     marketing: { id: 'marketing', name: 'Рекламная кампания', work: 25, desc: 'Новые клиенты. Чем лучше продукт и репутация, тем их больше.' }
   }
 };
+
+/* Сложность фиксируется на кампанию. forceMajeureFrequency — точка интеграции
+   для будущей системы форс-мажоров; сама система событий пока не запускается. */
+const DIFFICULTIES = Object.freeze({
+  easy: Object.freeze({ name: 'Лёгкий', employeeSpeed: 1.20, projectComplexity: 0.80, forceMajeureFrequency: 0.5,
+    goal: Object.freeze({ customers: 80, reputation: 30 }), description: 'Сотрудники работают на 20% быстрее, проекты требуют на 20% меньше работы. Цель: 80 клиентов и 30 репутации.' }),
+  medium: Object.freeze({ name: 'Средний', employeeSpeed: 1.00, projectComplexity: 1.00, forceMajeureFrequency: 1,
+    goal: Object.freeze({ customers: 100, reputation: 40 }), description: 'Стандартная скорость и сложность проектов. Цель: 100 клиентов и 40 репутации.' }),
+  hardcore: Object.freeze({ name: 'Хардкор', employeeSpeed: 0.75, projectComplexity: 1.50, forceMajeureFrequency: 2,
+    goal: Object.freeze({ customers: 180, reputation: 60 }), description: 'Сотрудники работают на 25% медленнее, проекты требуют на 50% больше работы. Цель: 180 клиентов и 60 репутации.' })
+});
 const STATUS = { work: 'Работает', rest: 'Отдыхает', idle: 'Бездействует' };
 const KEY = 'startupTycoon.save.v1';   // ключ СТАРОГО локального сохранения (используется только для импорта)
 
@@ -55,6 +66,7 @@ const KEY = 'startupTycoon.save.v1';   // ключ СТАРОГО локальн
    ===================================================================== */
 let S;                 // текущее состояние (сохраняется целиком)
 let timer = null, paused = false, tickCount = 0;
+let pendingDifficulty = 'medium', difficultyResetMode = false;
 // Система реплик вынесена в speech-system.js; здесь остаётся только интеграция с игрой.
 
 const num = (v, def, min, max) => { const n = Number(v); return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : def; };
@@ -73,7 +85,7 @@ function defaultFlavorState() {
 }
 
 function newState() {
-  return { v: 1, money: C.startMoney, rep: 0, product: 0, customers: 0, day: 1, hour: 9, speed: 1,
+  return { v: 1, difficulty: 'medium', money: C.startMoney, rep: 0, product: 0, customers: 0, day: 1, hour: 9, speed: 1,
            desks: C.startDesks, nextId: 1, employees: [], candidates: [], log: [], won: false, selected: null,
            flavor: defaultFlavorState() };
 }
@@ -91,6 +103,10 @@ function gameTickIndex() {
 function dailyCosts() {
   return S ? rentCost() + salaries() : 1;
 }
+
+function difficultyConfig() { return DIFFICULTIES[S && DIFFICULTIES[S.difficulty] ? S.difficulty : 'medium']; }
+function goalForDifficulty() { return difficultyConfig().goal; }
+function taskWork(task) { return Math.ceil(task.work * difficultyConfig().projectComplexity); }
 
 /* Реактивные реплики вынесены в отдельный модуль. Эти обёртки сохраняют
    прежние точки вызова игры и не дублируют логику очереди/порогов. */
@@ -149,7 +165,7 @@ function genCandidate() {
 
 /** Эффективность = базовая скорость × скорость сотрудника × пригодность роли × навык × энергия × настроение. */
 function efficiency(e, taskId) {
-  return C.baseSpeed * e.speed * C.roles[e.role].fit[taskId] * (0.4 + e.skill * 0.12)
+  return C.baseSpeed * difficultyConfig().employeeSpeed * e.speed * C.roles[e.role].fit[taskId] * (0.4 + e.skill * 0.12)
        * (0.4 + 0.6 * e.energy / 100) * (0.5 + 0.5 * e.mood / 100);
 }
 
@@ -219,7 +235,8 @@ function workEmployee(e) {
       const t = C.tasks[e.task];
       e.progress += efficiency(e, e.task);
       flavor('taskWork', flavorContext(e, t), { type: 'info' });
-      if (e.progress >= t.work) { e.progress -= t.work; completeTask(e, t); }
+      const requiredWork = taskWork(t);
+      if (e.progress >= requiredWork) { e.progress -= requiredWork; completeTask(e, t); }
     }
   }
   if (en0 >= 25 && e.energy < 25) {
@@ -261,7 +278,8 @@ function payDay() {
 }
 
 function checkGoal() {
-  if (!S.won && S.customers >= C.goal.customers && S.rep >= C.goal.reputation) {
+  const goal = goalForDifficulty();
+  if (!S.won && S.customers >= goal.customers && S.rep >= goal.reputation) {
     S.won = true;
     log('🏆 Цель достигнута: ваш стартап стал успешной компанией! Можно играть дальше.', 'good');
   }
@@ -350,12 +368,24 @@ function act(ev) {
     case 'save': save(false); break;
     case 'load': loadGame().then(render); break;
     case 'reset':
-      if (confirm('Начать заново? Сохранение на сервере будет заменено новой игрой.')) {
-        fresh(); API.hold = null; pushSave({ force: true, silent: true }); restartTimer();
-      } break;
+      if (confirm('Начать заново? Сохранение на сервере будет заменено новой игрой.')) openDifficultySetup(true);
+      return;
+    case 'diff-select':
+      if (DIFFICULTIES[el.dataset.v]) { pendingDifficulty = el.dataset.v; renderDifficultySetup(); }
+      return;
+    case 'start-difficulty':
+      startDifficultyCampaign();
+      return;
+    case 'cancel-difficulty':
+      if (difficultyResetMode) {
+        $('difficultySetup').hidden = true;
+        restartTimer(); render();
+      }
+      return;
     case 'logout': logout(); return;
     case 'noticeLoad': loadGame().then(render); break;
     case 'noticeForce':
+      if (API.hold === 'corrupt') { openDifficultySetup(true); return; }
       if (API.hold !== 'conflict' || confirm('Перезаписать сохранение на сервере текущей игрой?')) pushSave({ force: true, silent: false });
       break;
     case 'retryLoad': enterGame(); return;
@@ -392,6 +422,7 @@ function sanitize(r) {
   s.product = num(r.product, 0, 0, 100); s.customers = Math.floor(num(r.customers, 0, 0, 1e9));
   s.day = Math.floor(num(r.day, 1, 1, 1e6)); s.hour = Math.floor(num(r.hour, 9, 0, 23));
   s.speed = C.speeds.includes(r.speed) ? r.speed : 1;
+  s.difficulty = DIFFICULTIES[r.difficulty] ? r.difficulty : 'medium';
   s.desks = Math.floor(num(r.desks, C.startDesks, C.startDesks, C.maxDesks)); s.won = !!r.won;
   s.employees = (Array.isArray(r.employees) ? r.employees : []).map(cleanPerson).filter(Boolean).slice(0, s.desks);
   const used = new Set();
@@ -401,7 +432,7 @@ function sanitize(r) {
   // Старые сохранения сохраняют имеющиеся имена; недостающие получают новые уникальные имена.
   const people = [...s.employees, ...s.candidates];
   const usedNames = new Set(people.map(p => p.name.trim()).filter(n => n && n !== 'Без имени'));
-  let migratedState = !r.flavor;
+  let migratedState = !r.flavor || !DIFFICULTIES[r.difficulty];
   for (const person of people) {
     if (!person.name || person.name === 'Без имени') {
       person.name = StartupNameGenerator.generate(usedNames);
@@ -527,9 +558,14 @@ async function enterGame() {
   const r = await loadFromServer();
   if (r === 'auth') return;
   if (r === 'ok') log('Игра загружена с сервера', 'good');
+  else if (r === 'none') {
+    API.legacy = !!legacyRaw();
+    render();
+    openDifficultySetup(false);
+    return;
+  }
   else if (r === 'bad') { API.hold = 'corrupt'; log('Сохранение на сервере повреждено. Автосохранение выключено, пока вы не начнёте новую игру.', 'bad'); }
   else if (r === 'error') { API.hold = 'noload'; log('Не удалось загрузить сохранение. Автосохранение выключено, чтобы не затереть прогресс.', 'bad'); }
-  else await pushSave({ silent: true });          // новый аккаунт: создаём первое сохранение
   API.legacy = !!legacyRaw() && API.hold !== 'noload';
   restartTimer(); render(); showResumeBubble();
 }
@@ -582,11 +618,50 @@ async function boot() {
   } catch (err) { showAuth('Нет связи с сервером. Проверьте, что он запущен, и обновите страницу.'); }
 }
 
-function fresh() {
+function fresh(difficulty = 'medium') {
   S = newState();
+  S.difficulty = DIFFICULTIES[difficulty] ? difficulty : 'medium';
   for (let i = 0; i < C.candidates; i++) S.candidates.push(genCandidate());
   seedReactionState();
-  log(`Добро пожаловать! Наймите первых сотрудников. Цель: ${C.goal.customers} клиентов и репутация ${C.goal.reputation}.`);
+  const goal = goalForDifficulty();
+  log(`Добро пожаловать! Сложность: ${difficultyConfig().name}. Наймите первых сотрудников. Цель: ${goal.customers} клиентов и репутация ${goal.reputation}.`);
+}
+
+/** Показывает выбор режима перед новой кампанией или после подтверждённого сброса. */
+function openDifficultySetup(resetRun) {
+  difficultyResetMode = !!resetRun;
+  pendingDifficulty = DIFFICULTIES[S && S.difficulty] ? S.difficulty : 'medium';
+  clearInterval(timer); timer = null;
+  $('cancelDifficulty').hidden = !difficultyResetMode;
+  $('difficultySetup').hidden = false;
+  renderDifficultySetup();
+}
+
+function renderDifficultySetup() {
+  const cfg = DIFFICULTIES[pendingDifficulty] || DIFFICULTIES.medium;
+  document.querySelectorAll('.difficulty-option').forEach(button => {
+    const selected = button.dataset.v === pendingDifficulty;
+    button.classList.toggle('selected', selected);
+    button.setAttribute('aria-pressed', String(selected));
+  });
+  $('difficultyDetails').textContent = `${cfg.description} Частота форс-мажоров: ×${cfg.forceMajeureFrequency} (модификатор подготовлен для подключения системы событий).`;
+  $('difficultyTitle').textContent = difficultyResetMode ? 'Выбери сложность новой кампании' : 'Выбери сложность';
+  document.querySelector('[data-act="start-difficulty"]').textContent = difficultyResetMode ? 'Начать новую кампанию' : 'Начать игру';
+}
+
+async function startDifficultyCampaign() {
+  const replacing = difficultyResetMode;
+  $('difficultySetup').hidden = true;
+  fresh(pendingDifficulty);
+  API.hold = null;
+  API.legacy = false;
+  API.dirty = true;
+  tickCount = 0;
+  paused = false;
+  render();
+  restartTimer();
+  showResumeBubble();
+  pushSave({ force: replacing, silent: true });
 }
 
 /* =====================================================================
@@ -630,8 +705,11 @@ function renderTop() {
   document.querySelectorAll('[data-act="speed"]').forEach(b => b.classList.toggle('on', +b.dataset.v === S.speed));
   const g = $('goal');
   g.className = S.won ? 'won' : '';
-  g.textContent = (S.won ? '🏆 Цель достигнута! ' : 'Цель: ') +
-    `клиенты ${S.customers}/${C.goal.customers}, репутация ${Math.floor(S.rep)}/${C.goal.reputation}`;
+  const goal = goalForDifficulty(), difficulty = difficultyConfig();
+  g.textContent = `Сложность: ${difficulty.name} · работа ×${difficulty.employeeSpeed.toFixed(2)} · проекты ×${difficulty.projectComplexity.toFixed(2)} · ` +
+    (S.won ? '🏆 Цель достигнута! ' : 'Цель: ') +
+    `клиенты ${S.customers}/${goal.customers}, репутация ${Math.floor(S.rep)}/${goal.reputation}`;
+  g.title = `Модификатор частоты форс-мажоров: ×${difficulty.forceMajeureFrequency} (ожидает подключения системы событий)`;
 }
 
 function renderOffice() {
@@ -675,7 +753,7 @@ function renderPanel() {
     stat('Настроение', `${Math.round(e.mood)}%`, e.mood, 100, 'mood'),
     h('div', { class: 'row' }, h('span', {}, 'Скорость работы'), h('b', {}, '×' + e.speed.toFixed(2))),
     h('div', { class: 'row' }, h('span', {}, 'Зарплата'), h('b', {}, fmt(e.salary) + ' в день')),
-    stat('Задача: ' + (t ? t.name : 'не назначена'), t ? `${Math.floor(e.progress / t.work * 100)}%` : '—', t ? e.progress : 0, t ? t.work : 1, 'pr'),
+    stat('Задача: ' + (t ? t.name : 'не назначена'), t ? `${Math.floor(e.progress / taskWork(t) * 100)}%` : '—', t ? e.progress : 0, t ? taskWork(t) : 1, 'pr'),
     warnings(e).map(w => h('div', { class: 'warnline' }, '⚠ ' + w)),
     h('div', { class: 'btns' },
       e.status === 'rest' ? btn('Вернуть к работе', 'back', 'sec') : btn('Отправить отдыхать', 'rest', 'sec'),
@@ -692,6 +770,7 @@ function renderTasks() {
     return h('div', { class: 'task' },
       h('div', {}, sprite(SPRITES.bubbles[t.id], 'ico'), ' ', h('b', {}, t.name)),
       h('p', { class: 'mute' }, t.desc),
+      h('div', { class: 'mute' }, `Трудоёмкость проекта: ${taskWork(t)} очков работы`),
       h('div', { class: 'mute' }, 'Работают: ' + (who.join(', ') || 'никто')),
       s ? h('div', { class: 'mute' }, `${s.name}: эффективность ${Math.round(efficiency(s, t.id) / C.baseSpeed * 100)}%`) : null,
       h('button', { class: 'btn' + (s ? '' : ' off'), type: 'button', 'data-act': 'assign', 'data-task': t.id },

@@ -85,3 +85,17 @@ input:focus-visible{border-color:var(--gold)}
 .notice{max-width:1200px;margin:12px auto 0;padding:0 12px;display:grid;gap:8px}
 .nrow{background:#4a3a14;border:2px solid var(--gold);border-radius:8px;padding:10px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .nrow span{flex:1 1 260px}
+
+/* Выбор сложности перед запуском кампании */
+.difficulty-screen{position:fixed;inset:0;z-index:5000;display:grid;place-items:center;overflow:auto;padding:20px;background:rgba(5,12,20,.88);backdrop-filter:blur(5px)}
+.difficulty-card{width:min(900px,100%);background:var(--panel);border:2px solid var(--line);border-radius:14px;padding:clamp(18px,4vw,32px);box-shadow:0 24px 80px #0008}
+.difficulty-kicker{margin:0 0 8px;color:var(--mint);font:700 11px "Courier New",monospace;letter-spacing:1.5px}
+.difficulty-card h2{font-size:clamp(22px,4vw,32px);margin-bottom:8px}
+.difficulty-card>p.mute{max-width:650px;margin:0 0 20px}
+.difficulty-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.difficulty-option{display:flex;flex-direction:column;align-items:flex-start;gap:7px;text-align:left;background:var(--ink);color:var(--text);border:2px solid var(--line);border-radius:10px;padding:16px;min-height:158px;font:inherit;cursor:pointer}
+.difficulty-option:hover{border-color:var(--sky)}.difficulty-option.selected{border-color:var(--gold);box-shadow:inset 0 0 0 1px var(--gold);background:#26384a}
+.difficulty-option b{font-size:18px}.difficulty-option small{color:var(--mute);font-size:12px}.difficulty-option>span:last-child{font-size:12px;color:var(--mint);margin-top:auto}.diff-emoji{font-size:25px}
+.difficulty-details{min-height:52px;padding:12px 14px;margin:16px 0;background:var(--ink);border-radius:8px;color:var(--mute);font-size:13px}
+.difficulty-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+@media(max-width:650px){.difficulty-options{grid-template-columns:1fr}.difficulty-option{min-height:0}.difficulty-option>span:last-child{margin-top:0}.difficulty-screen{align-items:start;padding:10px}.difficulty-card{margin:auto 0}}

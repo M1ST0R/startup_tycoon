@@ -6,6 +6,7 @@ const ROLES = new Set(['dev', 'designer', 'marketer']);
 const TASKS = new Set(['code', 'ui', 'marketing']);
 const STATUSES = new Set(['work', 'rest', 'idle']);
 const LOG_TYPES = new Set(['good', 'warn', 'bad', 'info']);
+const DIFFICULTIES = new Set(['easy', 'medium', 'hardcore']);
 const FLAVOR_DEFAULTS = Object.freeze({ lastTick: -1000, cooldowns: {}, recent: [] });
 
 const fail = () => { throw new Error('invalid state'); };
@@ -50,6 +51,7 @@ function normalizeState(s) {
   if (!s || typeof s !== 'object' || Array.isArray(s) || s.v !== 1) fail();
   return {
     v: 1,
+    difficulty: DIFFICULTIES.has(s.difficulty) ? s.difficulty : 'medium',
     money: real(s.money, 0, 1e12), rep: real(s.rep, 0, 100), product: real(s.product, 0, 100),
     customers: int(s.customers, 0, 1e9), day: int(s.day, 1, 1e6), hour: int(s.hour, 0, 23),
     speed: [1, 2, 4].includes(s.speed) ? s.speed : fail(),
