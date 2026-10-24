@@ -1,5 +1,6 @@
 'use strict';
 const { resolveIdentity } = require('./name-generator');
+const EmployeeConfig = require('./employee-config');
 /* Серверная проверка сохранения: структура и допустимые диапазоны.
    Сервер не пересчитывает игру, он лишь не даёт сохранить мусор и слишком большие данные. */
 
@@ -27,12 +28,15 @@ function person(p) {
     int(p.appearance.cloth, 0, 3);
     if (p.appearance.sprite !== undefined) int(p.appearance.sprite, 0, 19);
   }
+  const salary = int(p.salary, 0, 1e6);
+  const traits = EmployeeConfig.normalizeEmployeeTraits(p);
   return {
     id, ...resolveIdentity(p),
     // Пустое/отсутствующее имя разрешено для старых сохранений: клиент назначит его без сброса прогресса.
     name: typeof p.name === 'string' ? p.name.slice(0, 32) : '',
     role: p.role, spec: str(p.spec, 24),
-    skill: real(p.skill, 1, 10), salary: int(p.salary, 0, 1e6), speed: real(p.speed, 0.5, 2),
+    skill: real(p.skill, 1, 10), tier: traits.tier, skills: traits.skills,
+    salary, speed: real(p.speed, 0.5, 2),
     energy: real(p.energy, 0, 100), mood: real(p.mood, 0, 100), task: p.task,
     progress: real(p.progress, 0, 1e4), status: p.status, desk: int(p.desk, -1, 99)
   };

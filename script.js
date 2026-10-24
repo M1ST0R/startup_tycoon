@@ -32,14 +32,14 @@ const C = {
   startDesks: 4, maxDesks: 10, desksPerUpgrade: 2, deskCost: 1500,
   rentBase: 40, rentPerDesk: 15, // аренда в день = base + perDesk * места
   hireFeeMult: 3,                // цена найма = зарплата в день × это число
-  refreshCost: 100, candidates: 4, salaryPerSkill: 20,
+  refreshCost: 100, candidates: 4,
   arpu: 1.5,                     // доход с клиента за тик (умножается на 0.3 + продукт/100)
   goal: { customers: 100, reputation: 40 },
   autosaveTicks: 10, logMax: 40,
   roles: {                       // fit — насколько роль подходит к каждой задаче
-    dev:      { name: 'Разработчик', specs: ['Backend', 'Frontend', 'Mobile'], baseSalary: 90, fit: { code: 1.0, ui: 0.4, marketing: 0.2 } },
-    designer: { name: 'Дизайнер',    specs: ['UI', 'UX', 'Графика'],            baseSalary: 80, fit: { code: 0.3, ui: 1.0, marketing: 0.4 } },
-    marketer: { name: 'Маркетолог',  specs: ['SMM', 'SEO', 'Контекст'],         baseSalary: 70, fit: { code: 0.2, ui: 0.4, marketing: 1.0 } }
+    dev:      { name: 'Разработчик', specs: ['Backend', 'Frontend', 'Mobile'], fit: { code: 1.0, ui: 0.4, marketing: 0.2 } },
+    designer: { name: 'Дизайнер',    specs: ['UI', 'UX', 'Графика'],            fit: { code: 0.3, ui: 1.0, marketing: 0.4 } },
+    marketer: { name: 'Маркетолог',  specs: ['SMM', 'SEO', 'Контекст'],         fit: { code: 0.2, ui: 0.4, marketing: 1.0 } }
   },
   tasks: {                       // work — сколько «очков работы» нужно для завершения
     code:      { id: 'code', name: 'Разработка продукта', work: 30, desc: 'Продукт +4…8% за задачу. Без продукта клиенты почти не платят.' },
@@ -156,22 +156,27 @@ function normalizeFlavorState(raw) {
 /* =====================================================================
    4. СОТРУДНИКИ И РАСЧЁТ ЗАДАЧ
    ===================================================================== */
-/** Создаёт случайного кандидата; чем выше репутация, тем сильнее кандидаты. */
+/** Создаёт кандидата с тиром, случайным набором специализаций и окладом из диапазона тира. */
 function genCandidate() {
   const role = pick(Object.keys(C.roles)), R = C.roles[role];
-  const skill = Math.min(8, 1 + rnd(0, 2 + Math.floor(S.rep / 15)));
+  const spec = pick(R.specs);
+  const tier = EmployeeConfig.pickTier();
+  const skills = EmployeeConfig.generateSkills(role, tier, Math.random, spec);
+  const skill = Math.max(1, ...Object.values(skills)); // Совместимость со старым полем опыта в репликах.
   const taken = new Set([...S.employees, ...S.candidates].map(p => p.name).filter(Boolean));
   const gender = pick(['male', 'female']);
   const spriteIndex = pick(CharacterArt.spriteIndices[gender]);
   const appearance = { hair: Math.floor(spriteIndex / 3), cloth: spriteIndex % 3, sprite: spriteIndex };
-  return { id: S.nextId++, gender, appearance, name: StartupNameGenerator.generate(taken, gender), role, spec: pick(R.specs), skill,
-           salary: R.baseSalary + skill * C.salaryPerSkill, speed: +(0.8 + Math.random() * 0.4).toFixed(2),
+  return { id: S.nextId++, gender, appearance, name: StartupNameGenerator.generate(taken, gender), role, spec,
+           tier, skills, skill, salary: EmployeeConfig.salaryForTier(tier), speed: +(0.8 + Math.random() * 0.4).toFixed(2),
            energy: 100, mood: rnd(60, 90), task: null, progress: 0, status: 'idle', desk: -1 };
 }
 
-/** Эффективность = базовая скорость × скорость сотрудника × пригодность роли × навык × энергия × настроение. */
+/** Эффективность зависит от роли и подходящего навыка; энергия и настроение сохраняют прежние модификаторы. */
 function efficiency(e, taskId) {
-  return C.baseSpeed * difficultyConfig().employeeSpeed * e.speed * C.roles[e.role].fit[taskId] * (0.4 + e.skill * 0.12)
+  const matchedLevel = EmployeeConfig.taskSkillLevel(e, taskId);
+  const skillFactor = matchedLevel > 0 ? 0.4 + matchedLevel * 0.12 : 0.4;
+  return C.baseSpeed * difficultyConfig().employeeSpeed * e.speed * C.roles[e.role].fit[taskId] * skillFactor
        * (0.4 + 0.6 * e.energy / 100) * (0.5 + 0.5 * e.mood / 100);
 }
 
@@ -187,21 +192,26 @@ function warnings(e) {
 /** Результат завершённой задачи. */
 function completeTask(e, t) {
   const p0 = S.product, r0 = S.rep, c0 = S.customers, skill0 = e.skill;
-  e.skill = Math.min(10, e.skill + 0.12);
+  const skillGrowth = EmployeeConfig.improveTaskSkill(e, t.id);
+  const taskLevel = EmployeeConfig.taskSkillLevel(e, t.id);
+  e.skill = Math.min(10, e.skill + 0.12); // Оставляем legacy-опыт для совместимости с существующими репликами.
   e.mood = Math.min(100, e.mood + 3);
   let msg;
   if (t.id === 'code') {
-    S.product = Math.min(100, S.product + 4 + e.skill * 0.4);
+    S.product = Math.min(100, S.product + 4 + taskLevel * 0.4);
     if (p0 >= 100) S.rep = Math.min(100, S.rep + 0.3);
     msg = p0 >= 100 ? 'продукт полностью готов, репутация +0.3' : `продукт +${(S.product - p0).toFixed(1)}%`;
   } else if (t.id === 'ui') {
-    S.rep = Math.min(100, S.rep + 1 + e.skill * 0.15);
+    S.rep = Math.min(100, S.rep + 1 + taskLevel * 0.15);
     S.product = Math.min(100, S.product + 1);
     msg = `репутация +${(S.rep - r0).toFixed(1)}`;
   } else {
-    const g = Math.max(1, Math.round((3 + e.skill * 1.2) * (0.25 + S.product / 100) * (1 + S.rep / 100)));
+    const g = Math.max(1, Math.round((3 + taskLevel * 1.2) * (0.25 + S.product / 100) * (1 + S.rep / 100)));
     S.customers += g;
     msg = `клиенты +${g}`;
+  }
+  if (skillGrowth && skillGrowth.improved) {
+    log(`${e.name} улучшил навык «${EmployeeConfig.SKILLS[skillGrowth.key].label}»: ${skillGrowth.next}/10`, 'good');
   }
   log(`${e.name} завершил «${t.name}»: ${msg}`, 'good');
   flavor('taskSuccess', flavorContext(e, t), { type: 'good', force: true });
@@ -348,12 +358,19 @@ function restartTimer() {
 }
 
 function hire(id) {
+  if (S.employees.some(employee => employee.id === id)) return;
   const i = S.candidates.findIndex(c => c.id === id);
   if (i < 0) return;
-  const c = S.candidates[i], fee = c.salary * C.hireFeeMult;
+  const c = S.candidates[i];
+  c.tier = EmployeeConfig.safeTier(c.tier) || 1;
+  const salaryRange = EmployeeConfig.tierConfig(c.tier).salary;
+  const candidateSalary = Number(c.salary);
+  c.salary = Number.isFinite(candidateSalary)
+    ? Math.max(salaryRange.min, Math.min(salaryRange.max, Math.floor(candidateSalary))) : salaryRange.min;
+  const fee = Math.max(0, Math.floor(c.salary * C.hireFeeMult));
   if (S.employees.length >= S.desks) return log('Нет свободных мест: расширьте офис', 'bad');
   if (S.money < fee) return log(`Не хватает денег на найм ${c.name}: нужно ${fmt(fee)}`, 'bad');
-  S.money -= fee;
+  S.money = Math.max(0, S.money - fee);
   S.candidates.splice(i, 1);
   const used = new Set(S.employees.map(e => e.desk));
   c.desk = 0; while (used.has(c.desk)) c.desk++;
@@ -454,11 +471,14 @@ function cleanPerson(r) {
   const name = String(typeof r.name === 'string' ? r.name : '').slice(0, 32);
   const identity = StartupNameGenerator.resolveIdentity({ ...r, id, name });
   const task = C.tasks[r.task] ? r.task : null;
+  const traits = EmployeeConfig.normalizeEmployeeTraits(r);
+  const legacySkill = num(r.skill, Math.max(1, ...Object.values(traits.skills)), 1, 10);
   let status = ['work', 'rest', 'idle'].includes(r.status) ? r.status : 'idle';
   if (status === 'work' && !task) status = 'idle';
   if (status === 'idle' && task) status = 'work';
   return { id, name, ...identity, role: r.role,
-           spec: String(r.spec || '').slice(0, 24), skill: num(r.skill, 1, 1, 10), salary: Math.floor(num(r.salary, 100, 0, 1e6)),
+           spec: String(r.spec || '').slice(0, 24), skill: legacySkill, tier: traits.tier, skills: traits.skills,
+           salary: Math.floor(num(r.salary, EmployeeConfig.tierConfig(traits.tier).salary.min, 0, 1e6)),
            speed: num(r.speed, 1, 0.5, 2), energy: num(r.energy, 100, 0, 100), mood: num(r.mood, 70, 0, 100),
            task, progress: num(r.progress, 0, 0, 1e4), status, desk: Math.floor(num(r.desk, -1, -1, 99)) };
 }
@@ -485,7 +505,8 @@ function sanitize(r) {
   let migratedState = !r.flavor || !DIFFICULTIES[r.difficulty] || people.some(person => {
     const original = originalPeople.find(p => p && p.id === person.id);
     return !original || original.gender !== person.gender
-      || JSON.stringify(original.appearance) !== JSON.stringify(person.appearance);
+      || JSON.stringify(original.appearance) !== JSON.stringify(person.appearance)
+      || original.tier !== person.tier || JSON.stringify(original.skills) !== JSON.stringify(person.skills);
   });
   for (const person of people) {
     if (!person.name || person.name === 'Без имени') {
@@ -764,6 +785,28 @@ function bar(v, max, kind) {
 const stat = (label, text, v, max, kind) => h('div', { class: 'st' }, h('div', {}, h('span', {}, label), h('b', {}, text)), bar(v, max, kind));
 const btn = (label, a, cls) => h('button', { class: 'btn ' + (cls || ''), type: 'button', 'data-act': a }, label);
 
+function tierDisplay(person) {
+  const tier = EmployeeConfig.safeTier(person.tier) || 1;
+  return h('div', { class: 'tier-line' },
+    h('span', { class: 'tier-stars', title: `Тир ${tier} из 5`, 'aria-label': `Тир ${tier} из 5` }, '★'.repeat(tier)),
+    h('span', { class: 'mute' }, `Тир ${tier}/5`));
+}
+
+function skillRows(person) {
+  const skills = person.skills || {};
+  const entries = Object.keys(EmployeeConfig.SKILLS).filter(key => Number.isFinite(Number(skills[key])));
+  if (!entries.length) return [h('p', { class: 'mute' }, 'Специализации не указаны')];
+  return entries.map(key => {
+    const level = Math.max(1, Math.min(10, Math.round(Number(skills[key]))));
+    return h('div', { class: 'skill-row' },
+      h('span', { class: 'skill-name' }, EmployeeConfig.SKILLS[key].label),
+      h('span', { class: 'microchips', title: `${EmployeeConfig.SKILLS[key].label}: ${level}/10`, 'aria-label': `${EmployeeConfig.SKILLS[key].label}: ${level} из 10` },
+        h('span', { class: 'microchips-filled' }, '■'.repeat(level)),
+        h('span', { class: 'microchips-empty' }, '□'.repeat(10 - level)),
+        h('b', { class: 'microchips-value' }, ` ${level}/10`)));
+  });
+}
+
 function renderTop() {
   const exp = salaries() + rentCost();
   $('sMoney').textContent = fmt(S.money);
@@ -836,8 +879,8 @@ function renderPanel() {
   fill(box, [
     h('div', { class: 'ehead' }, portrait(e, 'avatar--card'),
       h('div', {}, h('h3', {}, e.name), h('div', { class: 'mute' }, `${C.roles[e.role].name} · ${e.spec}`),
-        h('span', { class: 'badge ' + e.status }, STATUS[e.status]))),
-    stat('Уровень навыка', `${e.skill.toFixed(1)} / 10`, e.skill, 10, 'sk'),
+        tierDisplay(e), h('span', { class: 'badge ' + e.status }, STATUS[e.status]))),
+    h('div', { class: 'employee-skills' }, h('b', {}, 'Навыки'), ...skillRows(e)),
     stat('Энергия', `${Math.round(e.energy)}%`, e.energy, 100, 'en'),
     stat('Настроение', `${Math.round(e.mood)}%`, e.mood, 100, 'mood'),
     h('div', { class: 'row' }, h('span', {}, 'Скорость работы'), h('b', {}, '×' + e.speed.toFixed(2))),
@@ -859,6 +902,7 @@ function renderTasks() {
     return h('div', { class: 'task' },
       h('div', {}, sprite(SPRITES.bubbles[t.id], 'ico'), ' ', h('b', {}, t.name)),
       h('p', { class: 'mute' }, t.desc),
+      h('div', { class: 'mute' }, `Подходящие навыки: ${EmployeeConfig.TASK_SKILLS[t.id].map(key => EmployeeConfig.SKILLS[key].label).join(' / ')}`),
       h('div', { class: 'mute' }, `Трудоёмкость проекта: ${taskWork(t)} очков работы`),
       h('div', { class: 'mute' }, 'Работают: ' + (who.join(', ') || 'никто')),
       s ? h('div', { class: 'mute' }, `${s.name}: эффективность ${Math.round(efficiency(s, t.id) / C.baseSpeed * 100)}%`) : null,
@@ -873,12 +917,17 @@ function renderHire() {
     return h('div', { class: 'cand' }, portrait(c, 'avatar--card'),
       h('div', { class: 'cinfo' }, h('b', {}, c.name),
         h('div', { class: 'mute' }, `${C.roles[c.role].name} · ${c.spec}`),
-        h('div', { class: 'mute' }, `Навык ${c.skill} · скорость ×${c.speed.toFixed(2)} · ${fmt(c.salary)} в день`)),
+        tierDisplay(c), h('div', { class: 'candidate-skills' }, ...skillRows(c)),
+        h('div', { class: 'mute' }, `Скорость ×${c.speed.toFixed(2)} · оклад ${fmt(c.salary)} в день`)),
       h('button', { class: 'btn' + (S.money < fee || S.employees.length >= S.desks ? ' off' : ''), type: 'button', 'data-act': 'hire', 'data-id': c.id },
         `Нанять ${fmt(fee)}`));
   });
+  const chances = EmployeeConfig.TIERS.map(tier => `${'★'.repeat(tier.id)} ${tier.chance}%`).join(' · ');
   fill($('hire'), [
     items.length ? items : h('p', { class: 'mute' }, 'Кандидатов нет. Обновите список.'),
+    h('div', { class: 'tier-probabilities' },
+      h('b', {}, 'Вероятность появления тиров'),
+      h('div', { class: 'mute' }, chances)),
     h('div', { class: 'foot' }, h('button', { class: 'btn sec' + (S.money < C.refreshCost ? ' off' : ''), type: 'button', 'data-act': 'refresh' },
       `Обновить список (${fmt(C.refreshCost)})`))
   ]);

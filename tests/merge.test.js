@@ -13,7 +13,7 @@ const plain = value => JSON.parse(JSON.stringify(value));
 function browserModules(client = false) {
   const context = vm.createContext({ console, setTimeout, clearTimeout });
   context.window = context;
-  for (const file of ['name-generator.js', 'office-dialogue.js', 'speech-system.js']) {
+  for (const file of ['employee-config.js', 'name-generator.js', 'office-dialogue.js', 'speech-system.js']) {
     vm.runInContext(fs.readFileSync(path.join(root, file), 'utf8'), context);
   }
   if (client) {
@@ -111,6 +111,8 @@ test('combined v1 saves round-trip gender, appearance, difficulty, task progress
   assert.deepEqual(normalized.employees[0].appearance, input.employees[0].appearance);
   assert.equal(normalized.employees[0].gender, 'female');
   assert.equal(normalized.employees[0].progress, 9);
+  assert.equal(normalized.employees[0].tier, 2);
+  assert.deepEqual(normalized.employees[0].skills, { backend: 2 });
   assert.equal(normalized.difficulty, 'hardcore');
   assert.deepEqual(normalized.flavor, input.flavor);
   assert.deepEqual(normalizeState(normalized), normalized);
@@ -158,6 +160,8 @@ test('client migration keeps existing names, fills blank names and stabilizes se
   assert.equal(context.client.getDirty(), true);
   assert.equal(migrated.money, input.money);
   assert.equal(migrated.employees[0].progress, input.employees[0].progress);
+  assert.equal(migrated.employees[0].tier, 2);
+  assert.deepEqual(migrated.employees[0].skills, { backend: 2 });
   const again = plain(context.client.sanitize(normalizeState(migrated)));
   assert.deepEqual(again.employees, migrated.employees);
 });
