@@ -141,9 +141,10 @@ async function main() {
 
   /* ---------- Статические файлы клиента ---------- */
   app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
-  for (const file of ['style.css', 'script.js']) {
+  for (const file of ['style.css', 'script.js', 'character-art.js']) {
     app.get(`/${file}`, (req, res) => res.sendFile(path.join(__dirname, file)));
   }
+  app.use('/assets', express.static(path.join(__dirname, 'assets'), { dotfiles: 'ignore' }));
 
   app.use((err, req, res, next) => {
     if (err.type === 'entity.parse.failed') return res.status(400).json({ error: 'Некорректный JSON' });

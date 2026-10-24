@@ -55,7 +55,7 @@ const KEY = 'startupTycoon.save.v1';   // ключ СТАРОГО локальн
    3. СОСТОЯНИЕ ИГРЫ
    ===================================================================== */
 let S;                 // текущее состояние (сохраняется целиком)
-let timer = null, paused = false, tickCount = 0;
+let timer = null, paused = false, tickCount = 0, officePage = 0;
 
 const num = (v, def, min, max) => { const n = Number(v); return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : def; };
 const rnd = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
@@ -90,7 +90,8 @@ function genCandidate() {
   const free = C.names.filter(n => !taken.has(n));
   return { id: S.nextId++, name: pick(free.length ? free : C.names), role, spec: pick(R.specs), skill,
            salary: R.baseSalary + skill * C.salaryPerSkill, speed: +(0.8 + Math.random() * 0.4).toFixed(2),
-           energy: 100, mood: rnd(60, 90), task: null, progress: 0, status: 'idle', desk: -1 };
+           energy: 100, mood: rnd(60, 90), task: null, progress: 0, status: 'idle', desk: -1,
+           appearance: { hair: rnd(0, 63), cloth: rnd(0, 3) } };
 }
 
 /** Эффективность = базовая скорость × скорость сотрудника × пригодность роли × навык × энергия × настроение. */
@@ -222,6 +223,7 @@ function hire(id) {
   c.desk = 0; while (used.has(c.desk)) c.desk++;
   S.employees.push(c);
   S.selected = c.id;
+  officePage = Math.floor(c.desk / 4);
   log(`Нанят сотрудник: ${c.name} (${C.roles[c.role].name}, ${c.spec})`, 'good');
 }
 
@@ -239,6 +241,10 @@ function act(ev) {
   const el = ev.target.closest && ev.target.closest('[data-act]');
   if (!el || !S || $('gameView').hidden) return;
   const a = el.dataset.act, e = sel();
+  if (a === 'officePrev' || a === 'officeNext') {
+    officePage = Math.max(0, Math.min(Math.ceil(S.desks / 4) - 1, officePage + (a === 'officeNext' ? 1 : -1)));
+    render(); return;
+  }
   switch (a) {
     case 'select': if (S.employees.some(x => x.id === +el.dataset.id)) S.selected = +el.dataset.id; break;
     case 'assign': assign(el.dataset.task); break;
@@ -288,11 +294,18 @@ function act(ev) {
    ===================================================================== */
 function cleanPerson(r) {
   if (!r || typeof r !== 'object' || !C.roles[r.role]) return null;
+  const id = Math.floor(num(r.id, 0, 0, 1e9));
+  const oldLook = { hair: (id * 37 + 11) % 64, cloth: (id * 3 + 1) % 4 };
+  const look = r.appearance && typeof r.appearance === 'object' ? r.appearance : oldLook;
+  const appearance = {
+    hair: Math.floor(num(look.hair, oldLook.hair, 0, 63)),
+    cloth: Math.floor(num(look.cloth, oldLook.cloth, 0, 3))
+  };
   const task = C.tasks[r.task] ? r.task : null;
   let status = ['work', 'rest', 'idle'].includes(r.status) ? r.status : 'idle';
   if (status === 'work' && !task) status = 'idle';
   if (status === 'idle' && task) status = 'work';
-  return { id: Math.floor(num(r.id, 0, 0, 1e9)), name: String(r.name || 'Без имени').slice(0, 24), role: r.role,
+  return { id, appearance, name: String(r.name || 'Без имени').slice(0, 24), role: r.role,
            spec: String(r.spec || '').slice(0, 24), skill: num(r.skill, 1, 1, 10), salary: Math.floor(num(r.salary, 100, 0, 1e6)),
            speed: num(r.speed, 1, 0.5, 2), energy: num(r.energy, 100, 0, 100), mood: num(r.mood, 70, 0, 100),
            task, progress: num(r.progress, 0, 0, 1e4), status, desk: Math.floor(num(r.desk, -1, -1, 99)) };
@@ -384,7 +397,12 @@ async function loadFromServer() {
     if (status !== 200) return 'error';
     if (!data.save) { API.rev = 0; return 'none'; }
     API.rev = Number(data.save.rev) || 0;
-    try { S = sanitize(data.save.state); return 'ok'; } catch (err) { return 'bad'; }
+    try {
+      S = sanitize(data.save.state);
+      const selected = S.employees.find(e => e.id === S.selected);
+      officePage = selected ? Math.floor(selected.desk / 4) : 0;
+      return 'ok';
+    } catch (err) { return 'bad'; }
   } catch (err) { return 'error'; }
 }
 
@@ -415,7 +433,7 @@ function showAuth(msg) {
   $('gameView').hidden = true; $('authView').hidden = false; $('authMsg').textContent = msg || '';
 }
 function showGame() { $('authView').hidden = true; $('gameView').hidden = false; $('userName').textContent = API.user; }
-function resetSession() { Object.assign(API, { user: null, csrf: null, rev: 0, hold: null, legacy: false, dirty: false, queued: null }); S = null; }
+function resetSession() { Object.assign(API, { user: null, csrf: null, rev: 0, hold: null, legacy: false, dirty: false, queued: null }); S = null; officePage = 0; }
 function sessionExpired() { resetSession(); showAuth('Сессия истекла. Войдите снова.'); }
 
 /** Вход в игру после авторизации: грузим сохранение с сервера. */
@@ -482,6 +500,7 @@ async function boot() {
 }
 
 function fresh() {
+  officePage = 0;
   S = newState();
   for (let i = 0; i < C.candidates; i++) S.candidates.push(genCandidate());
   log(`Добро пожаловать! Наймите первых сотрудников. Цель: ${C.goal.customers} клиентов и репутация ${C.goal.reputation}.`);
@@ -533,22 +552,34 @@ function renderTop() {
 }
 
 function renderOffice() {
-  const desks = [];
-  for (let i = 0; i < S.desks; i++) {
+  const pages = Math.ceil(S.desks / 4);
+  officePage = Math.min(officePage, pages - 1);
+  const seats = [], roster = [];
+  for (let slot = 0; slot < 4; slot++) {
+    const i = officePage * 4 + slot;
+    if (i >= S.desks) continue;
     const e = S.employees.find(x => x.desk === i);
-    if (!e) { desks.push(h('div', { class: 'desk empty' }, 'Свободное место')); continue; }
-    const t = e.task ? C.tasks[e.task] : null, w = warnings(e);
-    desks.push(h('div', { class: `desk ${e.status}${e.id === S.selected ? ' sel' : ''}`, 'data-act': 'select', 'data-id': e.id,
-        role: 'button', tabindex: 0, 'aria-label': `Выбрать сотрудника ${e.name}` },
-      h('div', { class: 'bubble' }, sprite(SPRITES.bubbles[e.status === 'work' ? e.task : e.status], 'ico')),
-      w.length ? h('div', { class: 'warnflag', title: w.join('. ') }, '⚠') : null,
-      sprite(SPRITES.roles[e.role], 'sprite'),
-      h('div', { class: 'dname' }, e.name),
-      h('div', { class: 'drole' }, e.status === 'work' && t ? t.name : STATUS[e.status]),
-      bar(e.energy, 100, 'en')));
+    const w = e ? warnings(e) : [];
+    seats.push(h('div', { class: `office-seat slot-${slot}${e ? ` ${e.status}` : ' empty'}${e && e.id === S.selected ? ' sel' : ''}`,
+      'data-act': e ? 'select' : null, 'data-id': e ? e.id : null,
+      role: e ? 'button' : null, tabindex: e ? 0 : null,
+      'aria-label': e ? `Выбрать сотрудника ${e.name}` : null },
+      e ? CharacterArt.portrait(e, 'avatar--office') : null,
+      CharacterArt.desk(i),
+      e ? h('span', { class: 'seat-bubble', 'aria-hidden': 'true' }, sprite(SPRITES.bubbles[e.status === 'work' ? e.task : e.status], 'ico')) : null,
+      w.length ? h('span', { class: 'seat-warning', title: w.join('. ') }, '⚠') : null));
+    roster.push(h('div', { class: `office-person${e && e.id === S.selected ? ' sel' : ''}` },
+      h('span', { class: 'mute' }, `Место ${i + 1}`),
+      e ? h('button', { type: 'button', 'data-act': 'select', 'data-id': e.id },
+        e.name, ' · ', e.status === 'work' && e.task ? C.tasks[e.task].name : STATUS[e.status])
+        : h('span', {}, 'Свободно')));
   }
-  fill($('office'), desks);
+  fill($('office'), [h('div', { class: 'office-scene' }, seats), h('div', { class: 'office-roster' }, roster)]);
   fill($('officeFoot'), [
+    pages > 1 ? h('div', { class: 'office-pages' },
+      h('button', { class: 'btn sec', type: 'button', 'data-act': 'officePrev', disabled: officePage === 0 }, '←'),
+      h('span', {}, `Комната ${officePage + 1} / ${pages}`),
+      h('button', { class: 'btn sec', type: 'button', 'data-act': 'officeNext', disabled: officePage === pages - 1 }, '→')) : null,
     S.desks < C.maxDesks
       ? h('button', { class: 'btn sec' + (S.money < C.deskCost ? ' off' : ''), type: 'button', 'data-act': 'expand' },
           `Расширить офис: +${C.desksPerUpgrade} места (${fmt(C.deskCost)})`)
@@ -562,7 +593,7 @@ function renderPanel() {
   if (!e) { fill(box, [h('p', { class: 'mute' }, 'Нажмите на сотрудника в офисе, чтобы увидеть его параметры и управлять им.')]); return; }
   const t = e.task ? C.tasks[e.task] : null;
   fill(box, [
-    h('div', { class: 'ehead' }, sprite(SPRITES.roles[e.role], 'sprite sm'),
+    h('div', { class: 'ehead' }, CharacterArt.portrait(e, 'avatar--card'),
       h('div', {}, h('h3', {}, e.name), h('div', { class: 'mute' }, `${C.roles[e.role].name} · ${e.spec}`),
         h('span', { class: 'badge ' + e.status }, STATUS[e.status]))),
     stat('Уровень навыка', `${e.skill.toFixed(1)} / 10`, e.skill, 10, 'sk'),
@@ -597,7 +628,7 @@ function renderTasks() {
 function renderHire() {
   const items = S.candidates.map(c => {
     const fee = c.salary * C.hireFeeMult;
-    return h('div', { class: 'cand' }, sprite(SPRITES.roles[c.role], 'sprite sm'),
+    return h('div', { class: 'cand' }, CharacterArt.portrait(c, 'avatar--card'),
       h('div', { class: 'cinfo' }, h('b', {}, c.name),
         h('div', { class: 'mute' }, `${C.roles[c.role].name} · ${c.spec}`),
         h('div', { class: 'mute' }, `Навык ${c.skill} · скорость ×${c.speed.toFixed(2)} · ${fmt(c.salary)} в день`)),
@@ -648,4 +679,5 @@ window.addEventListener('pagehide', flush);
 document.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)));
 $('formLogin').addEventListener('submit', ev => submitAuth('login', ev));
 $('formRegister').addEventListener('submit', ev => submitAuth('register', ev));
+CharacterArt.load().then(() => { if (S) render(); }).catch(err => console.error('Не удалось загрузить изображения персонажей:', err));
 boot();

@@ -16,8 +16,14 @@ const list = (a, max) => (Array.isArray(a) && a.length <= max ? a : fail());
 function person(p) {
   if (!p || typeof p !== 'object' || !ROLES.has(p.role) || !STATUSES.has(p.status)) fail();
   if (p.task !== null && !TASKS.has(p.task)) fail();
+  const id = int(p.id, 0, 1e9);
+  // Older saves have no appearance. Give each older character a stable look.
+  const oldLook = { hair: (id * 37 + 11) % 64, cloth: (id * 3 + 1) % 4 };
+  const appearance = p.appearance == null ? oldLook : {
+    hair: int(p.appearance.hair, 0, 63), cloth: int(p.appearance.cloth, 0, 3)
+  };
   return {
-    id: int(p.id, 0, 1e9), name: str(p.name, 24), role: p.role, spec: str(p.spec, 24),
+    id, appearance, name: str(p.name, 24), role: p.role, spec: str(p.spec, 24),
     skill: real(p.skill, 1, 10), salary: int(p.salary, 0, 1e6), speed: real(p.speed, 0.5, 2),
     energy: real(p.energy, 0, 100), mood: real(p.mood, 0, 100), task: p.task,
     progress: real(p.progress, 0, 1e4), status: p.status, desk: int(p.desk, -1, 99)
