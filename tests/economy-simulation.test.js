@@ -35,14 +35,11 @@ function simulate(difficulty, days, roles, { subtractHireFees = true, rescueAfte
     state.money = Math.max(0, state.money - fees);
   }
 
+  // Расходы списываются всегда; «пропущенный платёж» теперь означает уход баланса в долг.
   function payDay() {
     const rent = Balance.rentForDesks(C.startDesks, difficulty);
-    if (state.money >= rent) state.money -= rent;
-    else missedPayments++;
-    for (const employee of state.employees) {
-      if (state.money >= employee.salary) state.money -= employee.salary;
-      else missedPayments++;
-    }
+    state.money -= rent + state.employees.reduce((sum, employee) => sum + employee.salary, 0);
+    if (state.money < 0) missedPayments++;
     if (!state.rescueUsed && state.employees.length === 0 && state.money < C.rescueThreshold) {
       state.money = Math.min(C.maxMoney, state.money + C.rescueGrant);
       state.rescueUsed = true;
@@ -120,7 +117,7 @@ function simulate(difficulty, days, roles, { subtractHireFees = true, rescueAfte
       payDay();
     }
     state.employees.forEach(employeeTick);
-    state.money = Math.min(C.maxMoney, Math.max(0,
+    state.money = Math.min(C.maxMoney, Math.max(C.minMoney,
       state.money + Balance.incomePerTick(state.customers, state.product, difficulty)));
     if (goalDay === null && state.customers >= cfg.goal.customers && state.rep >= cfg.goal.reputation) {
       goalDay = state.day;

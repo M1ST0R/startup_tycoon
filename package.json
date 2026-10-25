@@ -9,12 +9,18 @@
     "dev": "node --watch index.js",
     "test": "node --test"
   },
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
     "argon2": "^0.41.1",
     "better-sqlite3": "^12.2.0",
     "dotenv": "^16.4.5",
     "express": "^4.21.0",
     "express-rate-limit": "^7.4.0"
+  },
+  "allowScripts": {
+    "argon2@0.41.1": true,
+    "better-sqlite3@12.11.1": true
   }
 }

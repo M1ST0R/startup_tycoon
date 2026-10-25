@@ -140,7 +140,7 @@
         role: person && roles[person.role] ? roles[person.role].name : 'специалист',
         spec: person && person.spec ? person.spec : 'универсальный профиль',
         money: deps.formatMoney(s.money),
-        budgetDays: (s.money / burn).toFixed(1),
+        budgetDays: Math.max(0, s.money / burn).toFixed(1),
         mood: person ? Math.round(person.mood) : 0,
         energy: person ? Math.round(person.energy) : 0,
         progress,

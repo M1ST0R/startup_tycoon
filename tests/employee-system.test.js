@@ -12,7 +12,7 @@ const root = path.join(__dirname, '..');
 function browserEmployeeApi() {
   const context = vm.createContext({ console, setTimeout, clearTimeout });
   context.window = context;
-  for (const file of ['employee-config.js', 'name-generator.js', 'character-art.js', 'office-dialogue.js', 'speech-system.js']) {
+  for (const file of ['employee-config.js', 'crisis.js', 'crisis-flow.js', 'decision-dialog.js', 'name-generator.js', 'character-art.js', 'office-dialogue.js', 'speech-system.js']) {
     vm.runInContext(fs.readFileSync(path.join(root, file), 'utf8'), context);
   }
   const source = fs.readFileSync(path.join(root, 'script.js'), 'utf8');

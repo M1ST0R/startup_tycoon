@@ -1,37 +1,44 @@
-/* Изолированный слой форс-мажоров. Конфиг загружается отдельно из force-majeure.json. */
+/*
+ * Изолированный слой форс-мажоров. Конфиг загружается отдельно из force-majeure.json.
+ * Показ окон, очередь и пауза игры — в decision-dialog.js (общая очередь с кризисными решениями);
+ * здесь остаются только выбор событий, условия, отложенные события и применение последствий.
+ *
+ * Необязательные хуки в callbacks (для связи с другими системами, без знания о них):
+ *   isDismissible(event) → false убирает кнопки «Отложить» и «Игнорировать»;
+ *   eventWeight(event, baseWeight) → число: подстройка частоты выпадения события;
+ *   describe(event) → строка: текст окна вместо event.description;
+ *   onResolved(event, { type: 'choice', choice } | { type: 'ignored' }) — игрок закрыл событие.
+ */
 (function (root) {
   'use strict';
+  const OWNER = 'force-majeure';
   const TYPE = {
     investor: { icon: '💼', label: 'Инвестор', color: '#ffcf4a' },
     employees: { icon: '👥', label: 'Команда', color: '#6db7ff' },
     office: { icon: '🏢', label: 'Офис', color: '#ff7a6b' }
   };
-  let config = [], queue = [], active = null, lastTick = -100, tickNo = 0;
-  let deps = null, sessionState = null, generation = 0, activePaused = false;
-  let loadPromise = null, firstHireHandled = false, pendingFirstHire = false, nextTimer = null;
-  const seen = new Set(), deferred = new Map();
-  const $ = id => document.getElementById(id);
+  const DEFER_MS = 30000;
+  let config = [], lastTick = -100, tickNo = 0;
+  let deps = null, sessionState = null, generation = 0;
+  let loadPromise = null, firstHireHandled = false, pendingFirstHire = false;
+  const seen = new Set(), deferred = new Map(), inFlight = new Set();
   const currentState = () => deps && deps.getState ? deps.getState() : sessionState;
   const validSession = () => !!sessionState && currentState() === sessionState;
 
   function reset() {
     generation++;
-    if (nextTimer !== null) clearTimeout(nextTimer);
+    if (deps && deps.dialogs) deps.dialogs.clear(OWNER);
     for (const timer of deferred.values()) clearTimeout(timer);
-    deferred.clear(); seen.clear(); queue = []; active = null;
-    nextTimer = null; activePaused = false; firstHireHandled = false; pendingFirstHire = false;
+    deferred.clear(); seen.clear(); inFlight.clear();
+    firstHireHandled = false; pendingFirstHire = false;
     lastTick = -100; tickNo = 0; sessionState = null; deps = null;
-    const modal = $('forceMajeureModal');
-    if (modal) modal.hidden = true;
-    // Смена игры не должна запускать таймер предыдущей сессии.
-    if (document.body) document.body.classList.remove('fm-open');
   }
 
   function connect(s, callbacks) {
     if (!s || !Array.isArray(s.employees)) return false;
     if (sessionState !== s) { reset(); sessionState = s; }
     if (callbacks) deps = callbacks;
-    return validSession();
+    return validSession() && !!(deps && deps.dialogs);
   }
 
   function eligible(event, s) {
@@ -41,102 +48,97 @@
       (!conditions.minRep || s.rep >= conditions.minRep) && (!event.once || !seen.has(event.id));
   }
 
-  function alreadyPending(event) {
-    return active?.id === event.id || queue.some(item => item.id === event.id) || deferred.has(event.id);
+  const alreadyPending = event => inFlight.has(event.id) || deferred.has(event.id);
+
+  function weightOf(event) {
+    const base = event.weight || 1;
+    const custom = deps && deps.eventWeight ? Number(deps.eventWeight(event, base)) : base;
+    return Number.isFinite(custom) ? Math.max(0, custom) : base;
   }
 
-  function enqueue(source) {
-    if (!validSession() || !config.length) return;
-    const s = currentState();
-    const pool = config.filter(event => eligible(event, s) && !alreadyPending(event)
-      && (source === 'hire' || Math.random() < (event.weight || 1) / 40));
-    if (!pool.length) return;
-    const total = pool.reduce((sum, event) => sum + Math.max(0.01, event.weight || 1), 0);
-    let roll = Math.random() * total, chosen = pool[0];
-    for (const event of pool) {
-      roll -= Math.max(0.01, event.weight || 1);
-      if (roll <= 0) { chosen = event; break; }
-    }
-    queue.push(chosen);
-    showNext();
-  }
-
-  function showNext() {
-    if (active || !validSession()) return;
-    const s = currentState();
-    queue = queue.filter(event => eligible(event, s));
-    if (!queue.length) return;
-    active = queue.shift();
-    const event = active, epoch = generation;
-    const type = TYPE[event.type] || { icon: '⚠️', label: event.type, color: '#ffcf4a' };
-    $('fmIcon').textContent = type.icon;
-    $('fmType').textContent = type.label;
-    $('fmType').style.color = type.color;
-    $('fmTitle').textContent = event.title;
-    $('fmDescription').textContent = event.description;
-    const choices = $('fmChoices'); choices.replaceChildren();
-    for (const choice of event.choices) {
-      const button = document.createElement('button');
-      button.type = 'button'; button.className = 'btn'; button.textContent = choice.label;
-      button.addEventListener('click', () => resolve(choice, event, epoch));
-      const cost = -((choice.effects && choice.effects.money) || 0);
-      if (cost > 0 && s.money < cost) { button.disabled = true; button.textContent += ' (не хватает денег)'; }
-      choices.appendChild(button);
-    }
-    const defer = document.createElement('button'); defer.type = 'button'; defer.className = 'btn sec';
-    defer.textContent = 'Отложить'; defer.addEventListener('click', () => postpone(event, epoch));
-    choices.appendChild(defer);
-    const ignore = document.createElement('button'); ignore.type = 'button'; ignore.className = 'btn sec';
-    ignore.textContent = 'Игнорировать'; ignore.addEventListener('click', () => close(event, epoch, true));
-    choices.appendChild(ignore);
-    $('forceMajeureModal').hidden = false;
-    activePaused = event.pause !== false && !!(deps && deps.pause);
-    if (activePaused) deps.pause(true);
-  }
-
-  function isCurrent(event, epoch) {
-    return generation === epoch && active === event && validSession();
-  }
-
-  function resolve(choice, event, epoch) {
-    if (!isCurrent(event, epoch)) return;
-    const s = currentState(), effects = choice.effects || {};
-    if (effects.money < 0 && s.money < -effects.money) return;
-    s.money = Math.max(0, s.money + (effects.money || 0));
+  /** Последствия выбора. Платные варианты проверяются до вызова, поэтому баланс не уходит в минус по вине события. */
+  function applyEffects(s, effects) {
+    s.money += effects.money || 0;
     s.rep = Math.max(0, Math.min(100, s.rep + (effects.rep || 0)));
     s.product = Math.max(0, Math.min(100, s.product + (effects.product || 0)));
     for (const employee of s.employees) {
       employee.mood = Math.max(0, Math.min(100, employee.mood + (effects.employeeMood || 0)));
       employee.energy = Math.max(0, Math.min(100, employee.energy + (effects.employeeEnergy || 0)));
     }
-    if (deps.onApplied) deps.onApplied(event, choice, effects);
-    close(event, epoch, true);
   }
 
-  function close(event, epoch, consumed) {
-    if (!isCurrent(event, epoch)) return false;
-    if (consumed && event.once) seen.add(event.id);
-    const restorePause = activePaused;
-    active = null; activePaused = false; $('forceMajeureModal').hidden = true;
-    if (restorePause) deps.pause(false);
-    if (deps.render) deps.render();
-    if (queue.length) {
-      nextTimer = setTimeout(() => {
-        nextTimer = null;
-        if (generation === epoch) showNext();
-      }, 0);
-    }
+  function resolve(choice, event) {
+    if (!validSession()) return false;
+    const s = currentState(), effects = choice.effects || {};
+    if (effects.money < 0 && s.money < -effects.money) return false;   // не хватает денег — окно остаётся открытым
+    applyEffects(s, effects);
+    if (event.once) seen.add(event.id);
+    if (deps.onApplied) deps.onApplied(event, choice, effects);
+    if (deps.onResolved) deps.onResolved(event, { type: 'choice', choice });
     return true;
   }
 
-  function postpone(event, epoch) {
-    if (!close(event, epoch, false)) return;
-    const timer = setTimeout(() => {
+  function ignore(event) {
+    if (!validSession()) return false;
+    if (event.once) seen.add(event.id);
+    if (deps.onResolved) deps.onResolved(event, { type: 'ignored' });
+    return true;
+  }
+
+  function postpone(event) {
+    const epoch = generation;
+    deferred.set(event.id, setTimeout(() => {
       deferred.delete(event.id);
       if (generation !== epoch || !validSession() || !eligible(event, currentState())) return;
-      queue.push(event); showNext();
-    }, 30000);
-    deferred.set(event.id, timer);
+      submit(event);
+    }, DEFER_MS));
+  }
+
+  function dialogFor(event) {
+    const dismissible = !deps.isDismissible || deps.isDismissible(event) !== false;
+    return {
+      id: event.id, owner: OWNER, priority: 0,
+      kind: TYPE[event.type] || { icon: '⚠️', label: event.type, color: '#ffcf4a' },
+      title: event.title,
+      description: () => (deps && deps.describe && deps.describe(event)) || event.description,
+      // Доступность платных вариантов проверяется в момент показа, а не постановки в очередь.
+      choices: () => {
+        const s = currentState();
+        const options = event.choices.map(choice => {
+          const cost = -((choice.effects && choice.effects.money) || 0);
+          const short = cost > 0 && s.money < cost;
+          return { label: choice.label + (short ? ' (не хватает денег)' : ''), disabled: short, run: () => resolve(choice, event) };
+        });
+        if (dismissible) {
+          options.push({ label: 'Отложить', secondary: true, run: () => { postpone(event); } });
+          options.push({ label: 'Игнорировать', secondary: true, run: () => ignore(event) });
+        }
+        return options;
+      },
+      isValid: () => validSession() && eligible(event, currentState()),
+      onDrop: () => inFlight.delete(event.id),
+      onClose: () => inFlight.delete(event.id)
+    };
+  }
+
+  function submit(event) {
+    inFlight.add(event.id);
+    if (!deps.dialogs.enqueue(dialogFor(event))) inFlight.delete(event.id);
+  }
+
+  function enqueue(source) {
+    if (!validSession() || !config.length) return;
+    const s = currentState();
+    const pool = config.filter(event => eligible(event, s) && !alreadyPending(event)
+      && (source === 'hire' || Math.random() < weightOf(event) / 40));
+    if (!pool.length) return;
+    const total = pool.reduce((sum, event) => sum + Math.max(0.01, weightOf(event)), 0);
+    let roll = Math.random() * total, chosen = pool[0];
+    for (const event of pool) {
+      roll -= Math.max(0.01, weightOf(event));
+      if (roll <= 0) { chosen = event; break; }
+    }
+    submit(chosen);
   }
 
   function init() {
@@ -174,6 +176,6 @@
 
   root.ForceMajeureSystem = Object.freeze({
     init, reset, onTick, onHire,
-    get pending() { return queue.length + deferred.size + (active ? 1 : 0); }
+    get pending() { return inFlight.size + deferred.size; }
   });
 })(typeof window !== 'undefined' ? window : globalThis);

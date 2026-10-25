@@ -2,6 +2,7 @@
   {
     "id": "investor_report",
     "type": "investor",
+    "audit": "finance",
     "title": "Инвестор требует отчёт",
     "description": "Инвестор хочет увидеть прогресс уже сегодня.",
     "weight": 3,

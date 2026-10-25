@@ -13,7 +13,7 @@ const plain = value => JSON.parse(JSON.stringify(value));
 function browserModules(client = false) {
   const context = vm.createContext({ console, setTimeout, clearTimeout });
   context.window = context;
-  for (const file of ['employee-config.js', 'name-generator.js', 'office-dialogue.js', 'speech-system.js']) {
+  for (const file of ['employee-config.js', 'crisis.js', 'crisis-flow.js', 'decision-dialog.js', 'name-generator.js', 'office-dialogue.js', 'speech-system.js']) {
     vm.runInContext(fs.readFileSync(path.join(root, file), 'utf8'), context);
   }
   if (client) {

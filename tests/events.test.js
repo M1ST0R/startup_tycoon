@@ -38,18 +38,24 @@ function fixture(events = [sampleEvent()], { delayed = false, paused = false, ra
     setTimeout: (callback, delay) => { const id = ++nextId; timers.set(id, { callback, at: now + delay }); return id; },
     clearTimeout: id => timers.delete(id)
   });
-  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'force-majeure.js'), 'utf8'), context);
+  for (const file of ['decision-dialog.js', 'force-majeure.js']) {
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', file), 'utf8'), context);
+  }
+  const dialogs = context.DecisionDialog.create({
+    document,
+    pause: value => { pauses.push(value); if (value) { previousPause = paused; paused = true; } else paused = previousPause; }
+  });
   const callbacks = {
     getState: () => current,
     getFrequency: () => 1,
-    pause: value => { pauses.push(value); if (value) { previousPause = paused; paused = true; } else paused = previousPause; },
-    render: () => {}, onApplied: (event, choice) => applied.push([event.id, choice.id])
+    dialogs,
+    onApplied: (event, choice) => applied.push([event.id, choice.id])
   };
   return {
-    api: context.ForceMajeureSystem, callbacks, pauses, applied, errors, timers,
+    api: context.ForceMajeureSystem, dialogs, callbacks, pauses, applied, errors, timers,
     state: () => current, setState: value => { current = value; }, paused: () => paused,
-    modal: () => document.getElementById('forceMajeureModal'),
-    button: index => document.getElementById('fmChoices').children[index],
+    modal: () => document.getElementById('decisionModal'),
+    button: index => document.getElementById('dlgChoices').children[index],
     releaseFetch: () => fetchResolve(response),
     advance: duration => {
       const end = now + duration;
@@ -111,10 +117,11 @@ test('insufficient funds disable the choice and are rechecked when selecting it'
   assert.equal(f.applied.length, 0); assert.equal(f.state().money, 0);
 });
 
-test('an event with pause:false never changes the caller pause state', async () => {
-  const f = fixture([sampleEvent({ pause: false })], { paused: true });
-  await f.api.init(); f.api.onHire(f.state(), f.callbacks); f.button(2).click();
-  assert.deepEqual(f.pauses, []); assert.equal(f.paused(), true);
+test('every event pauses the game, even if the config asks otherwise', async () => {
+  const f = fixture([sampleEvent({ pause: false })]);
+  await f.api.init(); f.api.onHire(f.state(), f.callbacks);
+  assert.equal(f.paused(), true); f.button(2).click();
+  assert.deepEqual(f.pauses, [true, false]); assert.equal(f.paused(), false);
 });
 
 test('a modal restores an already paused game to its previous pause state', async () => {

@@ -24,6 +24,8 @@
     // Доход с клиента за игровой час. Выручка считается максимум со 150 клиентов,
     // чтобы число клиентов не превращало рекламу в неограниченный денежный эксплойт.
     arpu: 0.10, customerIncomeCap: 150, maxCustomers: 1000, maxMoney: 1e12,
+    // Баланс может уходить в минус (общий долг компании); это технический предел, чтобы число не росло бесконечно.
+    minMoney: -1e9,
     // Разовая страховка от софтлока: только если денег почти нет и команда пуста.
     rescueThreshold: 250, rescueGrant: 5000,
     autosaveTicks: 10, logMax: 40,
@@ -39,6 +41,43 @@
     })
   });
 
+  /*
+   * ФИНАНСОВЫЙ КРИЗИС: долг, дебаффы, увольнения за невыплату зарплат и реакция инвестора.
+   * Здесь только числа; правила их применения находятся в crisis.js.
+   * «День без денег» считается с первой полуночи, на которой баланс ≤ 0 (первый такой день = 1).
+   */
+  const CRISIS = Object.freeze({
+    // Дебафф настроения по объёму долга: до freeDebt ничего нет, дальше растёт линейно.
+    freeDebt: 200,            // $ долга без последствий
+    moodDebtStep: 250,        // каждые $250 долга сверх лимита...
+    moodDrainPerStep: 0.1,    // ...добавляют −0.1 настроения каждому сотруднику в час
+    maxMoodDrain: 1.2,        // потолок потери настроения в час
+    // Дебафф скорости работы по длительности: с 2-го дня без денег, дальше усиливается.
+    speedPenaltyStartDay: 2,
+    speedPenaltyBase: 0.15,   // −15% к скорости в первый «штрафной» день
+    speedPenaltyPerDay: 0.05, // и ещё −5% за каждый следующий день
+    maxSpeedPenalty: 0.5,
+    // Увольнения за неуплату: с 3-го дня, бросок для каждого сотрудника раз в quitRollHours часов.
+    quitStartDay: 3,
+    quitRollHours: 6,
+    quitDailyGrowth: 0.10,    // +10 п.п. к шансу за каждый следующий день после стартового
+    maxQuitChance: 0.95,
+    quitChanceByTier: Object.freeze({ 1: 0.08, 2: 0.18, 3: 0.30, 4: 0.45, 5: 0.60 }),
+    // Инвестор.
+    investor: Object.freeze({
+      // Шанс, что инвестор поможет, если признаться: база + вклад репутации и готовности продукта.
+      trustBase: 0.10, trustRepWeight: 0.40, trustProductWeight: 0.45,
+      trustMin: 0.05, trustMax: 0.95,
+      repeatPenalty: 0.15,    // −15 п.п. за каждую уже полученную помощь
+      // Размер помощи: покрыть долг и дать запас на aidRunwayDays дней расходов.
+      aidRunwayDays: 5, aidMinimum: 1000, aidRounding: 100,
+      // Запрос отчёта при скрытом кризисе: шанс, что инвестор раскусит обман.
+      detectBase: 0.40, detectPerDay: 0.10, detectRepRelief: 0.20,
+      detectMin: 0.10, detectMax: 0.95,
+      auditWeightMultiplier: 3 // во столько раз чаще выпадает событие-отчёт, пока вы скрываете кризис
+    })
+  });
+
   // Режимы меняют не только стартовый капитал: у каждого своя экономика,
   // темп разработки, цены действий и интенсивность форс-мажоров.
   const DIFFICULTIES = Object.freeze({
@@ -47,6 +86,7 @@
       forceMajeureFrequency: 0.5, salaryMultiplier: 0.88, rentMultiplier: 0.82,
       incomeMultiplier: 1.12, hireFeeMultiplier: 2.3, refreshCostMultiplier: 0.75,
       deskCostMultiplier: 0.85, goal: Object.freeze({ customers: 80, reputation: 30 }),
+      crisis: Object.freeze({ quitChanceMultiplier: 0.7, investorTrustBonus: 0.10 }),
       description: 'Большой запас денег, дешёвая команда и быстрые проекты. Можно экспериментировать и исправлять ошибки.'
     }),
     medium: Object.freeze({
@@ -54,6 +94,7 @@
       forceMajeureFrequency: 1, salaryMultiplier: 1, rentMultiplier: 1,
       incomeMultiplier: 1, hireFeeMultiplier: 3, refreshCostMultiplier: 1,
       deskCostMultiplier: 1, goal: Object.freeze({ customers: 100, reputation: 40 }),
+      crisis: Object.freeze({ quitChanceMultiplier: 1, investorTrustBonus: 0 }),
       description: 'Нужно сначала развить продукт, затем масштабировать клиентов. Резерв позволяет пережить несколько ошибок.'
     }),
     hardcore: Object.freeze({
@@ -61,6 +102,7 @@
       forceMajeureFrequency: 1.65, salaryMultiplier: 1.10, rentMultiplier: 1.17,
       incomeMultiplier: 1.05, hireFeeMultiplier: 3.15, refreshCostMultiplier: 1.3,
       deskCostMultiplier: 1.25, goal: Object.freeze({ customers: 150, reputation: 50 }),
+      crisis: Object.freeze({ quitChanceMultiplier: 1.35, investorTrustBonus: -0.05 }),
       description: 'Оклады и аренда выше, решения дороже, проекты медленнее, форс-мажоры чаще. Доход немного поддержан, чтобы цель оставалась проходимой.'
     })
   });
@@ -120,6 +162,9 @@
     const n = Number(value);
     return clamp(Number.isFinite(n) ? Math.round(n) : range.min, range.min, range.max);
   };
+
+  /** Настройки кризиса для выбранной сложности (модификатор шанса увольнения, доверие инвестора). */
+  const crisisSettings = key => difficultyConfig(key).crisis;
 
   function tierForSalary(salary) {
     const n = Number(salary);
@@ -293,8 +338,8 @@
   }
 
   return Object.freeze({
-    BASE, DIFFICULTIES, SKILLS, TIERS, TASK_SKILLS, ROLE_WEIGHTS, SPEC_SKILLS,
-    tierConfig, safeTier, tierForSalary, salaryForTier, rentForDesks, incomePerTick, hireCost, actionCost,
+    BASE, CRISIS, DIFFICULTIES, SKILLS, TIERS, TASK_SKILLS, ROLE_WEIGHTS, SPEC_SKILLS,
+    tierConfig, crisisSettings, safeTier, tierForSalary, salaryForTier, rentForDesks, incomePerTick, hireCost, actionCost,
     pickTier, generateSkills,
     normalizeEmployeeTraits, taskSkillKey, taskSkillLevel, improveTaskSkill
   });

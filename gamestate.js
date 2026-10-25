@@ -1,6 +1,7 @@
 'use strict';
 const { resolveIdentity } = require('./name-generator');
 const EmployeeConfig = require('./employee-config');
+const FinanceCrisis = require('./crisis');
 /* Серверная проверка сохранения: структура и допустимые диапазоны.
    Сервер не пересчитывает игру, он лишь не даёт сохранить мусор и слишком большие данные. */
 
@@ -65,7 +66,8 @@ function normalizeState(s) {
   return {
     v: 1,
     difficulty: DIFFICULTIES.has(s.difficulty) ? s.difficulty : 'medium',
-    money: real(s.money, 0, EmployeeConfig.BASE.maxMoney), rep: real(s.rep, 0, 100), product: real(s.product, 0, 100),
+    // Баланс может быть отрицательным: это долг компании.
+    money: real(s.money, EmployeeConfig.BASE.minMoney, EmployeeConfig.BASE.maxMoney), rep: real(s.rep, 0, 100), product: real(s.product, 0, 100),
     customers: int(s.customers, 0, 1e9), day: int(s.day, 1, 1e6), hour: int(s.hour, 0, 23),
     speed: [1, 2, 4].includes(s.speed) ? s.speed : fail(),
     desks: int(s.desks, 4, 10), nextId: int(s.nextId, 1, 1e9), won: typeof s.won === 'boolean' ? s.won : fail(),
@@ -78,6 +80,9 @@ function normalizeState(s) {
       if (!l || typeof l !== 'object' || !LOG_TYPES.has(l.type)) fail();
       return { t: str(l.t, 30), text: str(l.text, 200), type: l.type };
     }),
+    // Кризис и поражение необязательны: старые сохранения получают значения по умолчанию.
+    crisis: FinanceCrisis.normalizeState(s.crisis),
+    gameOver: FinanceCrisis.normalizeGameOver(s.gameOver),
     // Поле необязательно: состояние старых сохранений дополняется значениями по умолчанию.
     flavor: flavorState(s.flavor)
   };

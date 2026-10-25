@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Стартап-тайкун</title>
-<link rel="stylesheet" href="style.css?v=economy-rebalance-1">
+<link rel="stylesheet" href="style.css?v=crisis-1">
 </head>
 <body>
 <div id="authView" hidden>
@@ -54,6 +54,19 @@
     </div>
   </div>
 </div>
+<div id="gameOverScreen" class="gameover-screen" hidden role="alertdialog" aria-modal="true" aria-labelledby="goTitle" aria-describedby="goText">
+  <div class="gameover-card">
+    <p class="difficulty-kicker">STARTUP TYCOON / ИГРА ОКОНЧЕНА</p>
+    <div id="goIcon" class="go-icon" aria-hidden="true"></div>
+    <h2 id="goTitle"></h2>
+    <p id="goText"></p>
+    <ul id="goStats" class="go-stats"></ul>
+    <div class="difficulty-actions">
+      <button class="btn" type="button" data-act="gameover-restart">Начать новую кампанию</button>
+      <button class="btn sec" type="button" data-act="logout">Выйти из аккаунта</button>
+    </div>
+  </div>
+</div>
 <header id="top">
   <div class="acct">
     <h1>Стартап-тайкун</h1>
@@ -87,6 +100,7 @@
 </header>
 
 <div id="notice" class="notice" hidden></div>
+<section id="crisis" class="crisis" hidden aria-live="polite"></section>
 
 <main>
   <section class="card" style="grid-area:office"><h2>Офис</h2><div id="office"></div><div id="officeFoot" class="foot"></div></section>
@@ -97,19 +111,22 @@
 </main>
 </div>
 
-<div id="forceMajeureModal" class="fm-backdrop" hidden role="dialog" aria-modal="true" aria-labelledby="fmTitle">
-  <section class="fm-modal">
-    <div class="fm-kicker"><span id="fmIcon">⚠️</span> <span id="fmType">Форс-мажор</span></div>
-    <h2 id="fmTitle"></h2><p id="fmDescription"></p>
-    <div id="fmChoices" class="fm-choices"></div>
+<div id="decisionModal" class="dlg-backdrop" hidden role="dialog" aria-modal="true" aria-labelledby="dlgTitle">
+  <section class="dlg-modal">
+    <div class="dlg-kicker"><span id="dlgIcon">⚠️</span> <span id="dlgType">Решение</span></div>
+    <h2 id="dlgTitle"></h2><p id="dlgDescription"></p>
+    <div id="dlgChoices" class="dlg-choices"></div>
   </section>
 </div>
-<script src="employee-config.js?v=economy-rebalance-1"></script>
-<script src="force-majeure.js?v=economy-rebalance-1"></script>
-<script src="name-generator.js?v=economy-rebalance-1"></script>
-<script src="character-art.js?v=economy-rebalance-1"></script>
-<script src="office-dialogue.js?v=economy-rebalance-1"></script>
-<script src="speech-system.js?v=economy-rebalance-1"></script>
-<script src="script.js?v=economy-rebalance-1"></script>
+<script src="employee-config.js?v=crisis-1"></script>
+<script src="decision-dialog.js?v=crisis-1"></script>
+<script src="force-majeure.js?v=crisis-1"></script>
+<script src="crisis.js?v=crisis-1"></script>
+<script src="crisis-flow.js?v=crisis-1"></script>
+<script src="name-generator.js?v=crisis-1"></script>
+<script src="character-art.js?v=crisis-1"></script>
+<script src="office-dialogue.js?v=crisis-1"></script>
+<script src="speech-system.js?v=crisis-1"></script>
+<script src="script.js?v=crisis-1"></script>
 </body>
 </html>

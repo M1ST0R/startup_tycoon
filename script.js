@@ -27,6 +27,7 @@ const SPRITES = {
    ===================================================================== */
 const C = EmployeeConfig.BASE;
 const DIFFICULTIES = EmployeeConfig.DIFFICULTIES;
+const Crisis = FinanceCrisis;          // правила долга, дебаффов и шансов (crisis.js)
 const STATUS = { work: 'Работает', rest: 'Отдыхает', idle: 'Бездействует' };
 const KEY = 'startupTycoon.save.v1';   // ключ СТАРОГО локального сохранения (используется только для импорта)
 
@@ -35,7 +36,7 @@ const KEY = 'startupTycoon.save.v1';   // ключ СТАРОГО локальн
    ===================================================================== */
 let S;                 // текущее состояние (сохраняется целиком)
 let timer = null, paused = false, tickCount = 0, officePage = 0;
-let fmPausedBefore = false, fmPauseActive = false;
+let dialogPausedBefore = false, dialogPauseActive = false;
 let pendingDifficulty = 'medium', difficultyResetMode = false;
 // Система реплик вынесена в speech-system.js; здесь остаётся только интеграция с игрой.
 
@@ -43,7 +44,11 @@ const num = (v, def, min, max) => { const n = Number(v); return Number.isFinite(
 const rnd = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
 const pick = arr => arr[Math.floor(Math.random() * arr.length)];
 const portrait = (person, mode) => CharacterArt.portrait(person, mode);
-const fmt = n => '$' + Math.floor(n).toLocaleString('ru-RU');
+/** Суммы показываются целыми долларами; долг — со знаком «−» перед «$». */
+const fmt = n => {
+  const dollars = Math.floor(Math.abs(n));
+  return (n < 0 && dollars > 0 ? '−' : '') + '$' + dollars.toLocaleString('ru-RU');
+};
 const $ = id => document.getElementById(id);
 const sel = () => S.employees.find(e => e.id === S.selected) || null;
 const timeStr = () => `День ${S.day}, ${String(S.hour).padStart(2, '0')}:00`;
@@ -61,6 +66,7 @@ function defaultFlavorState() {
 function newState() {
   return { v: 1, difficulty: 'medium', money: DIFFICULTIES.medium.startingMoney, rep: 0, product: 0, customers: 0, day: 1, hour: 9, speed: 1,
            desks: C.startDesks, nextId: 1, employees: [], candidates: [], log: [], won: false, selected: null, rescueUsed: false,
+           crisis: Crisis.defaultState(), gameOver: null,
            flavor: defaultFlavorState() };
 }
 
@@ -97,7 +103,7 @@ const Speech = StartupSpeechSystem.create({
   dialogue: StartupOfficeDialogue,
   log: (text, type) => log(text, type),
   markDirty: () => { if (API) API.dirty = true; },
-  isVisible: () => !!(S && !$('gameView').hidden && $('difficultySetup').hidden && $('forceMajeureModal').hidden),
+  isVisible: () => !!(S && !S.gameOver && !$('gameView').hidden && $('difficultySetup').hidden && !Dialogs.isOpen()),
   renderOffice: () => renderOffice()
 });
 
@@ -151,7 +157,8 @@ function efficiency(e, taskId) {
   const matchedLevel = EmployeeConfig.taskSkillLevel(e, taskId);
   const skillFactor = matchedLevel > 0 ? 0.4 + matchedLevel * 0.12 : 0.4;
   return C.baseSpeed * difficultyConfig().employeeSpeed * e.speed * C.roles[e.role].fit[taskId] * skillFactor
-       * (0.4 + 0.6 * e.energy / 100) * (0.5 + 0.5 * e.mood / 100);
+       * (0.4 + 0.6 * e.energy / 100) * (0.5 + 0.5 * e.mood / 100)
+       * Crisis.speedMultiplier(S);   // дебафф «давно нет денег»
 }
 
 /** Предупреждения о состоянии сотрудника. */
@@ -160,6 +167,8 @@ function warnings(e) {
   if (e.energy < 25) w.push('Устал: работает медленнее');
   if (e.mood < 30) w.push('Недоволен: работает медленнее');
   if (e.status === 'idle') w.push('Простаивает: назначьте задачу');
+  const quitWarning = Crisis.employeeWarning(S, e);
+  if (quitWarning) w.push(quitWarning);
   return w;
 }
 
@@ -230,6 +239,7 @@ function workEmployee(e) {
       if (e.progress >= requiredWork) { e.progress -= requiredWork; completeTask(e, t); }
     }
   }
+  e.mood = Math.max(0, e.mood - Crisis.moodDrainPerTick(S));   // дебафф «большой долг»
   if (en0 >= 25 && e.energy < 25) {
     log(`${e.name} устал`, 'warn');
     flavor('rest', flavorContext(e, e.task ? C.tasks[e.task] : null), { type: 'warn' });
@@ -243,25 +253,18 @@ function workEmployee(e) {
 /* =====================================================================
    5. ИГРОВЫЕ ТИКИ И ДЕЙСТВИЯ ИГРОКА
    ===================================================================== */
-/** Раз в сутки: аренда и зарплаты. Деньги никогда не уходят в минус. */
+/**
+ * Раз в сутки: аренда и зарплаты списываются ВСЕГДА. Если денег не хватает, баланс уходит в минус —
+ * это общий долг компании; его последствия (дебаффы, увольнения, инвестор) обрабатывает CrisisFlow.
+ */
 function payDay() {
-  let paid = 0, missed = 0;
-  const rent = rentCost();
-  if (S.money >= rent) { S.money -= rent; paid += rent; }
-  else {
-    S.rep = Math.max(0, S.rep - 1); missed++;
-    log('Нечем платить за аренду офиса', 'bad');
-    flavor('failure', { ...flavorContext(null), name: 'Финансовый отдел', reason: 'аренду нечем оплачивать' }, { type: 'bad' });
+  const charge = Crisis.chargeDailyCosts(S, rentCost());
+  if (charge.inDebt) {
+    log(`Конец дня: списано ${fmt(charge.total)}, баланс ушёл в долг: ${fmt(S.money)}`, 'bad');
+    flavor('failure', { ...flavorContext(null), name: 'Финансовый отдел', reason: 'расходы превысили баланс, компания ушла в долг' }, { type: 'bad' });
+  } else {
+    log(`Конец дня: списано ${fmt(charge.total)}`, 'info');
   }
-  S.employees.forEach(e => {
-    if (S.money >= e.salary) { S.money -= e.salary; paid += e.salary; }
-    else {
-      e.mood = Math.max(0, e.mood - 15); S.rep = Math.max(0, S.rep - 1); missed++;
-      log(`Не хватило денег на зарплату: ${e.name}`, 'bad');
-      flavor('failure', { ...flavorContext(e), reason: 'зарплата не поместилась в бюджет' }, { type: 'bad' });
-    }
-  });
-  log(`Конец дня: выплачено ${fmt(paid)}`, missed ? 'bad' : 'info');
   // Одноразовый спасательный контракт защищает кампанию от безвыходного состояния:
   // без сотрудников и почти без денег игрок иначе не может ни работать, ни нанимать.
   if (!S.rescueUsed && S.employees.length === 0 && S.money < C.rescueThreshold) {
@@ -269,7 +272,7 @@ function payDay() {
     S.rescueUsed = true;
     log(`🛟 Антикризисный контракт: +${fmt(C.rescueGrant)}. Используйте резерв, чтобы нанять сотрудника и восстановить доход.`, 'good');
   }
-  if (S.money < (rent + salaries()) * 2) {
+  if (S.money > 0 && S.money < (charge.rent + salaries()) * 2) {
     log('Денег хватит меньше чем на 2 дня расходов', 'warn');
     flavor('moneyLow', flavorContext(null), { type: 'warn' });
   }
@@ -283,28 +286,62 @@ function checkGoal() {
   }
 }
 
-function resetForceMajeure() {
-  ForceMajeureSystem.reset();
-  if (fmPauseActive) paused = fmPausedBefore;
-  fmPauseActive = false;
-  document.body.classList.remove('fm-open');
+/** Единая пауза на время любого окна с вопросом: запоминает прежнее состояние паузы и возвращает его. */
+function dialogPause(value) {
+  if (value && !dialogPauseActive) {
+    dialogPausedBefore = paused; dialogPauseActive = true; paused = true;
+    document.body.classList.add('dialog-open');
+  } else if (!value && dialogPauseActive) {
+    paused = dialogPausedBefore; dialogPauseActive = false;
+    document.body.classList.remove('dialog-open');
+  }
+  restartTimer();
 }
+
+/** Снимает все окна и очереди форс-мажоров (смена игры, выход, поражение) и возвращает прежнюю паузу. */
+function resetDialogs() {
+  ForceMajeureSystem.reset();
+  Dialogs.clear();
+  if (dialogPauseActive) paused = dialogPausedBefore;
+  dialogPauseActive = false;
+  document.body.classList.remove('dialog-open');
+}
+
+/** Окно с вопросом ставит игру на паузу; кризисные решения идут через ту же очередь, что и форс-мажоры. */
+const Dialogs = DecisionDialog.create({ pause: dialogPause, onChange: () => { if (S) render(); } });
+
+/** Поражение: снимаем окна, останавливаем время, сразу сохраняем факт игры-оверa на сервере. */
+function handleGameOver() {
+  resetDialogs();
+  clearInterval(timer); timer = null;
+  API.dirty = true;
+  pushSave({ silent: true });
+  render();
+}
+
+/** Сценарий финансового кризиса (долг → инвестор → увольнения → геймовер). Правила — в crisis.js. */
+const Flow = CrisisFlow.create({
+  getState: () => S,
+  dialogs: Dialogs,
+  log: (text, type) => log(text, type),
+  formatMoney: fmt,
+  dailyCosts,
+  dismissEmployee: person => {
+    S.employees = S.employees.filter(x => x !== person);
+    Speech.removeEmployee(person.id);
+    if (S.selected === person.id) S.selected = null;
+  },
+  onGameOver: handleGameOver,
+  onChanged: () => { API.dirty = true; scheduleSave(); }
+});
+const crisisHooks = Flow.forceMajeureHooks();
 
 function forceMajeureDeps() {
   return {
+    ...crisisHooks,
     getState: () => S,
     getFrequency: () => difficultyConfig().forceMajeureFrequency,
-    pause: value => {
-      if (value && !fmPauseActive) {
-        fmPausedBefore = paused; fmPauseActive = true; paused = true;
-        document.body.classList.add('fm-open');
-      } else if (!value && fmPauseActive) {
-        paused = fmPausedBefore; fmPauseActive = false;
-        document.body.classList.remove('fm-open');
-      }
-      restartTimer();
-    },
-    render: () => { if (S) render(); },
+    dialogs: Dialogs,
     onApplied: (event, choice) => {
       API.dirty = true;
       log(`Форс-мажор «${event.title}»: ${choice.label}`, 'warn');
@@ -314,14 +351,17 @@ function forceMajeureDeps() {
 }
 
 function tick() {
-  if (!S || paused || !$('difficultySetup').hidden) return;
+  if (!S || paused || S.gameOver || !$('difficultySetup').hidden) return;
   try {
     ForceMajeureSystem.onTick(S, forceMajeureDeps());
     if (paused) return;
+    let newDay = false;
     S.hour++;
-    if (S.hour >= 24) { S.hour = 0; S.day++; payDay(); }
+    if (S.hour >= 24) { S.hour = 0; S.day++; newDay = true; payDay(); }
     S.employees.forEach(workEmployee);
-    S.money = Math.min(C.maxMoney, Math.max(0, S.money + incomeTick()));
+    S.money = Math.min(C.maxMoney, Math.max(C.minMoney, S.money + incomeTick()));
+    Flow.afterTick({ newDay });
+    if (S.gameOver) return;            // handleGameOver уже остановил время и показал экран
     evaluateReactions();
     if (Math.random() < StartupOfficeDialogue.CONFIG.rareTickChance) {
       const chosen = sel();
@@ -336,7 +376,7 @@ function tick() {
 
 function restartTimer() {
   clearInterval(timer); timer = null;
-  if (S && !paused && $('difficultySetup').hidden) timer = setInterval(tick, C.tickMs / S.speed);
+  if (S && !S.gameOver && !paused && $('difficultySetup').hidden) timer = setInterval(tick, C.tickMs / S.speed);
 }
 
 function hire(id) {
@@ -378,11 +418,14 @@ function assign(taskId) {
   flavor('taskStart', flavorContext(e, C.tasks[taskId]), { type: 'info', force: true });
 }
 
+const GAME_OVER_ACTIONS = new Set(['gameover-restart', 'logout', 'diff-select', 'start-difficulty', 'cancel-difficulty']);
+
 /** Обработчик всех кнопок (делегирование событий по data-act). */
 function act(ev) {
   const el = ev.target.closest && ev.target.closest('[data-act]');
-  if (!el || !S || $('gameView').hidden || !$('forceMajeureModal').hidden) return;
+  if (!el || !S || $('gameView').hidden || Dialogs.isOpen()) return;
   const a = el.dataset.act, e = sel();
+  if (S.gameOver && !GAME_OVER_ACTIONS.has(a)) return;      // после поражения доступны только выход и новая кампания
   if (a === 'officePrev' || a === 'officeNext') {
     officePage = Math.max(0, Math.min(Math.ceil(S.desks / 4) - 1, officePage + (a === 'officeNext' ? 1 : -1)));
     Speech.syncVisibility();
@@ -428,6 +471,7 @@ function act(ev) {
       }
       return;
     case 'logout': logout(); return;
+    case 'gameover-restart': openDifficultySetup(true); return;
     case 'noticeLoad': loadGame().then(render); break;
     case 'noticeForce':
       if (API.hold === 'corrupt') { openDifficultySetup(true); return; }
@@ -469,13 +513,15 @@ function cleanPerson(r) {
 function sanitize(r) {
   if (!r || typeof r !== 'object') throw new Error('Некорректное сохранение');
   const s = newState();
-  s.money = num(r.money, s.money, 0, C.maxMoney); s.rep = num(r.rep, 0, 0, 100);
+  s.money = num(r.money, s.money, C.minMoney, C.maxMoney); s.rep = num(r.rep, 0, 0, 100);
   s.product = num(r.product, 0, 0, 100); s.customers = Math.floor(num(r.customers, 0, 0, 1e9));
   s.day = Math.floor(num(r.day, 1, 1, 1e6)); s.hour = Math.floor(num(r.hour, 9, 0, 23));
   s.speed = C.speeds.includes(r.speed) ? r.speed : 1;
   s.difficulty = DIFFICULTIES[r.difficulty] ? r.difficulty : 'medium';
   s.desks = Math.floor(num(r.desks, C.startDesks, C.startDesks, C.maxDesks)); s.won = !!r.won;
   s.rescueUsed = typeof r.rescueUsed === 'boolean' ? r.rescueUsed : false;
+  s.crisis = Crisis.normalizeState(r.crisis);
+  s.gameOver = Crisis.normalizeGameOver(r.gameOver);
   s.employees = (Array.isArray(r.employees) ? r.employees : []).map(cleanPerson).filter(Boolean).slice(0, s.desks);
   const used = new Set();
   s.employees.forEach(e => { if (e.desk < 0 || e.desk >= s.desks || used.has(e.desk)) e.desk = -1; else used.add(e.desk); });
@@ -485,7 +531,7 @@ function sanitize(r) {
   const people = [...s.employees, ...s.candidates];
   const usedNames = new Set(people.map(p => p.name.trim()).filter(n => n && n !== 'Без имени'));
   const originalPeople = [...(Array.isArray(r.employees) ? r.employees : []), ...(Array.isArray(r.candidates) ? r.candidates : [])];
-  let migratedState = !r.flavor || !DIFFICULTIES[r.difficulty] || typeof r.rescueUsed !== 'boolean' || people.some(person => {
+  let migratedState = !r.flavor || !r.crisis || !DIFFICULTIES[r.difficulty] || typeof r.rescueUsed !== 'boolean' || people.some(person => {
     const original = originalPeople.find(p => p && p.id === person.id);
     return !original || original.gender !== person.gender
       || JSON.stringify(original.appearance) !== JSON.stringify(person.appearance)
@@ -576,7 +622,7 @@ async function loadFromServer() {
     try {
       API.dirty = false;
       const loaded = sanitize(data.save.state);
-      resetForceMajeure();
+      resetDialogs();
       S = loaded;
       const selected = sel();
       officePage = selected ? Math.floor(selected.desk / 4) : 0;
@@ -602,7 +648,7 @@ async function importLocal() {
   try { local = sanitize(JSON.parse(legacyRaw())); }
   catch (err) { API.legacy = false; log('Локальное сохранение повреждено, импорт невозможен', 'bad'); return; }
   if ((S.day > 1 || S.employees.length) && !confirm('В аккаунте уже есть прогресс. Заменить его локальным сохранением из этого браузера?')) return;
-  resetForceMajeure();
+  resetDialogs();
   S = local; officePage = sel() ? Math.floor(sel().desk / 4) : 0;
   API.legacy = false; tickCount = 0; seedReactionState();
   log('Локальное сохранение импортировано', 'good'); render();
@@ -613,11 +659,11 @@ async function importLocal() {
 function showAuth(msg) {
   clearInterval(timer); timer = null; clearTimeout(API.saveTimer);
   $('difficultySetup').hidden = true;
-  resetForceMajeure();
+  resetDialogs();
   $('gameView').hidden = true; $('authView').hidden = false; $('authMsg').textContent = msg || '';
 }
 function showGame() { $('authView').hidden = true; $('gameView').hidden = false; $('userName').textContent = API.user; }
-function resetSession() { Object.assign(API, { user: null, csrf: null, rev: 0, hold: null, legacy: false, dirty: false, queued: null }); resetForceMajeure(); S = null; officePage = 0; Speech.clear(); }
+function resetSession() { Object.assign(API, { user: null, csrf: null, rev: 0, hold: null, legacy: false, dirty: false, queued: null }); resetDialogs(); S = null; officePage = 0; Speech.clear(); }
 function sessionExpired() { resetSession(); showAuth('Сессия истекла. Войдите снова.'); }
 
 /** Вход в игру после авторизации: грузим сохранение с сервера. */
@@ -692,7 +738,7 @@ async function boot() {
 
 function fresh(difficulty = 'medium') {
   clearInterval(timer); timer = null;
-  resetForceMajeure();
+  resetDialogs();
   officePage = 0;
   S = newState();
   S.difficulty = DIFFICULTIES[difficulty] ? difficulty : 'medium';
@@ -712,6 +758,7 @@ function openDifficultySetup(resetRun) {
   $('cancelDifficulty').hidden = !difficultyResetMode;
   $('difficultySetup').hidden = false;
   renderDifficultySetup();
+  if (S) renderGameOver();   // экран поражения уступает место выбору сложности
 }
 
 function renderDifficultySetup() {
@@ -794,6 +841,8 @@ function skillRows(person) {
 function renderTop() {
   const exp = salaries() + rentCost();
   $('sMoney').textContent = fmt(S.money);
+  $('sMoney').classList.toggle('neg', S.money < 0);
+  $('sMoney').title = S.money < 0 ? `Долг компании: ${fmt(Crisis.debtOf(S))}` : '';
   $('sRep').textContent = `${Math.floor(S.rep)} / 100`;
   $('sProd').textContent = `${Math.floor(S.product)}%`;
   $('sCust').textContent = S.customers;
@@ -935,7 +984,45 @@ function renderNotice() {
   box.hidden = !n.length; fill(box, n);
 }
 
-function render() { if (!S) return; renderTop(); renderOffice(); renderPanel(); renderTasks(); renderHire(); renderLog(); renderNotice(); }
+/** Панель кризиса: долг, дни без денег, действующие дебаффы и состояние отношений с инвестором. */
+function renderCrisis() {
+  const box = $('crisis'), info = Crisis.summary(S), cfg = EmployeeConfig.CRISIS;
+  box.hidden = !info.broke;
+  if (!info.broke) { box.replaceChildren(); return; }
+  const row = (icon, text, active) => h('li', { class: active ? 'on' : '' }, h('span', { class: 'ci' }, icon), text);
+  fill(box, [
+    h('div', { class: 'crisis-head' },
+      h('b', {}, info.debt > 0 ? `Компания в долгу: ${fmt(info.debt)}` : 'Деньги закончились'),
+      h('span', { class: 'mute' }, `День без денег: ${info.days}`)),
+    h('ul', {},
+      row('🙁', info.moodDrain > 0
+        ? `Долг выше ${fmt(cfg.freeDebt)}: настроение сотрудников −${info.moodDrain.toFixed(2)} в час`
+        : `Долг до ${fmt(cfg.freeDebt)}: настроение пока не страдает`, info.moodDrain > 0),
+      row('🐢', info.speedMultiplier < 1
+        ? `Давно нет денег: скорость работы ×${info.speedMultiplier.toFixed(2)}`
+        : `С ${cfg.speedPenaltyStartDay}-го дня без денег сотрудники начнут работать медленнее`, info.speedMultiplier < 1),
+      row('🚪', info.quitPhase
+        ? `Каждые ${cfg.quitRollHours} ч сотрудники могут уволиться из-за долгов по зарплате (следующая проверка через ${info.hoursToQuitRoll} ч)`
+        : `С ${cfg.quitStartDay}-го дня без денег сотрудники начнут увольняться`, info.quitPhase),
+      info.concealing ? row('🕵️', 'Вы скрываете проблему от инвестора: при запросе отчёта вас могут разоблачить', true) : null)
+  ]);
+}
+
+/** Экран поражения: показывается поверх игры, пока в состоянии есть gameOver. */
+function renderGameOver() {
+  const screen = $('gameOverScreen'), over = S && S.gameOver;
+  screen.hidden = !(over && $('difficultySetup').hidden);
+  if (!over) return;
+  const reason = Crisis.GAME_OVER_REASONS[over.reason];
+  $('goIcon').textContent = reason.icon;
+  $('goTitle').textContent = reason.title;
+  $('goText').textContent = reason.text;
+  fill($('goStats'), [
+    ['Дней прожито', over.day], ['Клиентов', over.customers], ['Репутация', `${over.rep} / 100`], ['Продукт', `${over.product}%`]
+  ].map(([label, value]) => h('li', {}, h('span', { class: 'mute' }, label), h('b', {}, String(value)))));
+}
+
+function render() { if (!S) return; renderTop(); renderCrisis(); renderOffice(); renderPanel(); renderTasks(); renderHire(); renderLog(); renderNotice(); renderGameOver(); }
 
 /* =====================================================================
    8. ЗАПУСК
