@@ -47,7 +47,12 @@
   .gameover-card{box-sizing:border-box;width:min(560px,100%);max-height:calc(var(--overlay-height,100dvh) - 24px);overflow:auto;margin:0;padding:20px;display:flex;flex-direction:column;gap:10px;text-align:center;border:1px solid var(--coral,#f68a88);border-radius:18px;background:var(--panel,#1a222d);box-shadow:0 24px 80px #0006}
   .gameover-card .difficulty-kicker{display:block;margin:0;font-size:11px;color:var(--coral,#f68a88)}
   .gameover-card h2{margin:0;font-size:22px;color:var(--coral,#f68a88)}.gameover-card p{margin:0}
-  .difficulty-card{width:min(640px,100%);height:min(420px,calc(var(--overlay-height,100dvh) - 24px))}
+  .difficulty-card{width:min(960px,100%);height:min(640px,calc(var(--overlay-height,100dvh) - 24px));max-height:calc(var(--overlay-height,100dvh) - 24px);min-height:0;gap:10px}
+  .cu-difficulty-scroll{display:flex;flex:1 1 auto;flex-direction:column;gap:10px;min-height:0;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;padding-right:4px;scrollbar-gutter:stable}
+  .cu-difficulty-scroll>*{flex-shrink:0}
+  .cu-difficulty-scroll #difficultyDetails{overflow-wrap:anywhere}
+  .difficulty-card>.difficulty-actions{flex:0 0 auto;justify-content:center;align-items:center;padding-top:10px;border-top:1px solid var(--line,#303b4b)}
+  .difficulty-card>.difficulty-actions .btn{flex:0 1 260px;width:min(100%,260px);min-height:48px;font-size:15px;font-weight:700}
   .difficulty-kicker,.difficulty-card>p.mute{display:none}
   .difficulty-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;flex:none}
   .difficulty-option{display:flex;align-items:center;justify-content:center;flex-direction:row;min-height:44px;padding:8px 5px;gap:5px;border-radius:9px;font:inherit}
@@ -66,7 +71,7 @@
   .cu-pager .btn{width:44px;min-width:44px;padding:8px}
   .cu-pager [aria-live]{text-align:center;flex:1}
   #authView .btn,.difficulty-screen .btn,.gameover-screen .btn,.dlg-backdrop .btn{min-height:44px;min-width:44px}
-  @media(max-height:430px){#authView .authbox,.difficulty-card,.gameover-card,.dlg-modal{padding:12px;gap:8px;border-radius:12px}.difficulty-card h2,.dlg-modal h2,.gameover-card h2{font-size:18px}.dlg-kicker{display:none}.go-icon{font-size:32px}}
+  @media(max-height:430px){#authView .authbox,.difficulty-card,.gameover-card,.dlg-modal{padding:12px;gap:8px;border-radius:12px}.difficulty-card h2,.dlg-modal h2,.gameover-card h2{font-size:18px}.difficulty-card>.difficulty-actions{padding-top:6px}.difficulty-card>.difficulty-actions .btn{min-height:42px}.dlg-kicker{display:none}.go-icon{font-size:32px}}
   @media(prefers-reduced-motion:reduce){.difficulty-screen,.gameover-screen,.dlg-backdrop{backdrop-filter:none}}
   `;
 
@@ -203,9 +208,15 @@
 
   function prepareDialogs() {
     const difficulty = $('difficultySetup').querySelector('.difficulty-card');
-    const detailsBody = make('div', 'cu-paged-body');
-    const details = $('difficultyDetails'); details.before(detailsBody); detailsBody.append(details);
-    createPager(detailsBody, () => [details], [details]);
+    const actions = difficulty.querySelector('.difficulty-actions');
+    // On the campaign setup screen, keep the actual choices in one scrollable area.
+    // Do not paginate the explanatory paragraph: it used to create dozens of pages
+    // (e.g. “1 / 65”) and pushed the start button below the visible card.
+    const difficultyBody = make('div', 'cu-difficulty-scroll');
+    for (const child of Array.from(difficulty.children)) {
+      if (child !== actions) difficultyBody.append(child);
+    }
+    difficulty.insertBefore(difficultyBody, actions);
     const eventBody = make('div', 'cu-paged-body');
     const description = $('dlgDescription'), choices = $('dlgChoices');
     description.before(eventBody); eventBody.append(description, choices);

@@ -21,9 +21,9 @@
     startDesks: 4, maxDesks: 10, desksPerUpgrade: 2, deskCost: 1500,
     rentBase: 40, rentPerDesk: 15,
     refreshCost: 100, candidates: 4,
-    // Доход с клиента за игровой час. Выручка считается максимум со 150 клиентов,
-    // чтобы число клиентов не превращало рекламу в неограниченный денежный эксплойт.
-    arpu: 0.10, customerIncomeCap: 150, maxCustomers: 1000, maxMoney: 1e12,
+    // Базовая цена клиента за игровой час. После 250 клиентов каждый следующий
+    // учитывается с меньшим весом, но рост аудитории продолжает увеличивать доход.
+    arpu: 0.08, customerIncomeCap: 250, aboveCapCustomerWeight: 0.25, maxCustomers: 1000, maxMoney: 1e12,
     // Баланс может уходить в минус (общий долг компании); это технический предел, чтобы число не росло бесконечно.
     minMoney: -1e9,
     // Разовая страховка от софтлока: только если денег почти нет и команда пуста.
@@ -36,10 +36,10 @@
     }),
     tasks: Object.freeze({
       code: Object.freeze({ id: 'code', name: 'Разработка продукта', work: 30, desc: 'Внутренняя разработка продукта.' }),
-      backend: Object.freeze({ id: 'backend', name: 'Backend', work: 30, desc: 'Серверная логика, API и данные проекта.' }),
-      frontend: Object.freeze({ id: 'frontend', name: 'Frontend', work: 30, desc: 'Клиентская часть и взаимодействия проекта.' }),
+      backend: Object.freeze({ id: 'backend', name: 'Backend', work: 30, desc: 'Серверная логика, API и данные продукта.' }),
+      frontend: Object.freeze({ id: 'frontend', name: 'Frontend', work: 30, desc: 'Клиентская часть и взаимодействия продукта.' }),
       ui: Object.freeze({ id: 'ui', name: 'UI', work: 24, desc: 'Интерфейс и пользовательский опыт.' }),
-      marketing: Object.freeze({ id: 'marketing', name: 'Маркетинг', work: 25, desc: 'Продвижение и запуск проекта.' })
+      marketing: Object.freeze({ id: 'marketing', name: 'Маркетинг', work: 25, desc: 'Продвижение продукта и привлечение пользователей.' })
     })
   });
 
@@ -84,31 +84,31 @@
   // темп разработки, цены действий и интенсивность форс-мажоров.
   const DIFFICULTIES = Object.freeze({
     easy: Object.freeze({
-      name: 'Лёгкий', startingMoney: 8800, employeeSpeed: 1.15, projectComplexity: 0.82,
+      name: 'Лёгкий', startingMoney: 8800, employeeSpeed: 1.15, taskWorkMultiplier: 0.88,
       forceMajeureFrequency: 0.5, salaryMultiplier: 0.88, rentMultiplier: 0.82,
       incomeMultiplier: 1.12, hireFeeMultiplier: 2.3, refreshCostMultiplier: 0.75,
-      deskCostMultiplier: 0.85, projectRewardMultiplier: 0.95,
-      goal: Object.freeze({ customers: 80, reputation: 30, projects: 2 }),
+      deskCostMultiplier: 0.85,
+      goal: Object.freeze({ product: 38, customers: 80, reputation: 30 }),
       crisis: Object.freeze({ quitChanceMultiplier: 0.7, investorTrustBonus: 0.10 }),
-      description: 'Большой запас денег, дешёвая команда и быстрые проекты. Можно экспериментировать и исправлять ошибки.'
+      description: 'Больше стартового капитала, дешёвые сотрудники и аренда, ускоренная работа и более щадящие форс-мажоры.'
     }),
     medium: Object.freeze({
-      name: 'Нормальная', startingMoney: 7000, employeeSpeed: 1, projectComplexity: 1,
+      name: 'Нормальная', startingMoney: 7000, employeeSpeed: 1, taskWorkMultiplier: 1,
       forceMajeureFrequency: 1, salaryMultiplier: 1, rentMultiplier: 1,
       incomeMultiplier: 1, hireFeeMultiplier: 3, refreshCostMultiplier: 1,
-      deskCostMultiplier: 1, projectRewardMultiplier: 1,
-      goal: Object.freeze({ customers: 100, reputation: 40, projects: 3 }),
+      deskCostMultiplier: 1,
+      goal: Object.freeze({ product: 55, customers: 110, reputation: 38 }),
       crisis: Object.freeze({ quitChanceMultiplier: 1, investorTrustBonus: 0 }),
-      description: 'Нужно сначала развить продукт, затем масштабировать клиентов. Резерв позволяет пережить несколько ошибок.'
+      description: 'Сбалансированный режим: требуется вырастить продукт, привлечь клиентов и держать под контролем постоянные расходы.'
     }),
     hardcore: Object.freeze({
-      name: 'Сложная', startingMoney: 6500, employeeSpeed: 0.88, projectComplexity: 1.22,
+      name: 'Сложная', startingMoney: 6500, employeeSpeed: 0.88, taskWorkMultiplier: 1.16,
       forceMajeureFrequency: 1.65, salaryMultiplier: 1.10, rentMultiplier: 1.17,
       incomeMultiplier: 1.05, hireFeeMultiplier: 3.15, refreshCostMultiplier: 1.3,
-      deskCostMultiplier: 1.25, projectRewardMultiplier: 1.12,
-      goal: Object.freeze({ customers: 150, reputation: 50, projects: 4 }),
+      deskCostMultiplier: 1.25,
+      goal: Object.freeze({ product: 65, customers: 140, reputation: 48 }),
       crisis: Object.freeze({ quitChanceMultiplier: 1.35, investorTrustBonus: -0.05 }),
-      description: 'Оклады и аренда выше, решения дороже, проекты медленнее, форс-мажоры чаще. Доход немного поддержан, чтобы цель оставалась проходимой.'
+      description: 'Меньше стартового капитала, выше оклады и расходы, медленнее работа и чаще форс-мажоры. Требует точного найма и распределения задач.'
     })
   });
 
@@ -160,58 +160,60 @@
   });
 
 
-  // Настройки проектного цикла. Точные условия активного проекта копируются в сохранение при старте,
-  // поэтому изменение баланса не меняет задним числом уже принятый заказ.
-  const PROJECT_BALANCE = Object.freeze({
-    nameMinLength: 3,
-    nameMaxLength: 48,
-    maxProjectWork: 1000000,
-    maxPayout: 250000,
-    qualityBase: 35,              // минимальное качество: даже слабая команда может сдать рабочий результат
-    qualitySkillWeight: 65,       // оставшиеся 65 пунктов зависят от навыков, реально применённых в работе
-    qualityRewardMin: 0.70,
-    qualityRewardRange: 0.50,     // множитель награды: 0.70..1.20 до округления качества
-    outcomeQualityBase: 0.75,     // низкое качество не обнуляет результат проекта полностью
-    outcomeQualityBonus: 0.25,
-    lateReputationPenalty: 4,
-    historyLimit: 12,
-    deadlines: Object.freeze([
-      Object.freeze({ id: 'rush', name: 'Сжатый срок', days: 7, effortMultiplier: 1.20, onTimeRewardMultiplier: 1.25, lateRewardMultiplier: 0.55 }),
-      Object.freeze({ id: 'standard', name: 'Стандартный срок', days: 11, effortMultiplier: 1.00, onTimeRewardMultiplier: 1.00, lateRewardMultiplier: 0.72 }),
-      Object.freeze({ id: 'relaxed', name: 'Свободный срок', days: 16, effortMultiplier: 0.90, onTimeRewardMultiplier: 0.88, lateRewardMultiplier: 0.90 })
-    ]),
-    workTypes: Object.freeze({
-      backend: Object.freeze({ label: 'Backend', icon: '🗄️' }),
-      frontend: Object.freeze({ label: 'Frontend', icon: '🖥️' }),
-      ui: Object.freeze({ label: 'UI', icon: '🎨' }),
-      marketing: Object.freeze({ label: 'Маркетинг', icon: '📣' })
-    }),
-    templates: Object.freeze({
-      website: Object.freeze({
-        id: 'website', name: 'Веб-сайт', icon: '🌐', description: 'Сайт компании или сервиса: важны клиентская часть и удобство интерфейса.',
-        baseWork: 420, baseReward: 2600,
-        workWeights: Object.freeze({ backend: 0.20, frontend: 0.30, ui: 0.35, marketing: 0.15 }),
-        outcomes: Object.freeze({ product: 14, reputation: 5, customers: 10 })
-      }),
+  // Баланс развития одного стартапа. Типы и этапы собраны здесь, чтобы баланс
+  // можно было менять без разбросанных проверок по UI и игровой логике.
+  const STARTUP_BALANCE = Object.freeze({
+    defaultType: 'webService',
+    maxLifetimeWork: 1e9,
+    initialCustomers: 2,
+    initialProduct: 4,
+    // Прибавка к качеству продукта за завершённую внутреннюю задачу.
+    taskProductGain: Object.freeze({ code: 4.2, backend: 3.8, frontend: 3.5, ui: 2.4, marketing: 0.55 }),
+    taskReputationGain: Object.freeze({ code: 0.15, backend: 0.15, frontend: 0.2, ui: 1.0, marketing: 0.45 }),
+    taskCustomerBase: 3.4,
+    taskCustomerSkillWeight: 1.0,
+    taskCustomerProductWeight: 0.72,
+    taskCustomerRepWeight: 0.35,
+    types: Object.freeze({
       webService: Object.freeze({
-        id: 'webService', name: 'Веб-сервис', icon: '⚙️', description: 'Сложная серверная логика, API и пользовательский кабинет.',
-        baseWork: 520, baseReward: 3400,
-        workWeights: Object.freeze({ backend: 0.45, frontend: 0.30, ui: 0.15, marketing: 0.10 }),
-        outcomes: Object.freeze({ product: 20, reputation: 4, customers: 12 })
+        id: 'webService', name: 'Веб-сервис', icon: '🌐',
+        description: 'Платформа с личным кабинетом, API и серверной логикой. Хорошо растёт за счёт Backend и Frontend.',
+        focus: 'Backend и Frontend',
+        taskMultipliers: Object.freeze({ code: 1.00, backend: 1.18, frontend: 1.04, ui: 0.94, marketing: 0.98 }),
+        productMultipliers: Object.freeze({ code: 1.00, backend: 1.16, frontend: 1.08, ui: 0.92, marketing: 0.8 }),
+        customerMultiplier: 0.97, revenueMultiplier: 1.02
       }),
       mobileApp: Object.freeze({
-        id: 'mobileApp', name: 'Мобильное приложение', icon: '📱', description: 'Приложение с большим объёмом интерфейсов и клиентской логики.',
-        baseWork: 500, baseReward: 3300,
-        workWeights: Object.freeze({ backend: 0.25, frontend: 0.35, ui: 0.25, marketing: 0.15 }),
-        outcomes: Object.freeze({ product: 17, reputation: 6, customers: 14 })
+        id: 'mobileApp', name: 'Мобильное приложение', icon: '📱',
+        description: 'Приложение для пользователей телефона. Интерфейс и клиентская часть особенно важны.',
+        focus: 'Frontend и UI',
+        taskMultipliers: Object.freeze({ code: 1.00, backend: 0.94, frontend: 1.20, ui: 1.12, marketing: 1.03 }),
+        productMultipliers: Object.freeze({ code: 1.00, backend: 0.92, frontend: 1.2, ui: 1.22, marketing: 0.85 }),
+        customerMultiplier: 1.08, revenueMultiplier: 1.00
       }),
-      indieGame: Object.freeze({
-        id: 'indieGame', name: 'Инди-игра', icon: '🎮', description: 'Больше работы над клиентской частью, UX и продвижением.',
-        baseWork: 640, baseReward: 4100,
-        workWeights: Object.freeze({ backend: 0.25, frontend: 0.25, ui: 0.30, marketing: 0.20 }),
-        outcomes: Object.freeze({ product: 20, reputation: 8, customers: 18 })
+      gameStudio: Object.freeze({
+        id: 'gameStudio', name: 'Игровая студия', icon: '🎮',
+        description: 'Студия развивает собственную игру. Клиентская часть, UI и продвижение помогают собирать аудиторию.',
+        focus: 'Frontend, UI и Маркетинг',
+        taskMultipliers: Object.freeze({ code: 1.04, backend: 0.88, frontend: 1.15, ui: 1.12, marketing: 1.10 }),
+        productMultipliers: Object.freeze({ code: 1.02, backend: 0.88, frontend: 1.15, ui: 1.16, marketing: 0.92 }),
+        customerMultiplier: 1.18, revenueMultiplier: 0.91
+      }),
+      saas: Object.freeze({
+        id: 'saas', name: 'SaaS-платформа', icon: '☁️',
+        description: 'Подписной сервис для постоянных клиентов. Backend и маркетинг важны для стабильной выручки.',
+        focus: 'Backend и Маркетинг',
+        taskMultipliers: Object.freeze({ code: 1.00, backend: 1.22, frontend: 0.98, ui: 0.90, marketing: 1.12 }),
+        productMultipliers: Object.freeze({ code: 1.00, backend: 1.2, frontend: 0.98, ui: 0.88, marketing: 1.05 }),
+        customerMultiplier: 0.91, revenueMultiplier: 1.18
       })
-    })
+    }),
+    stages: Object.freeze([
+      Object.freeze({ id: 'prototype', name: 'Прототип', icon: '🧪', product: 0, customers: 0, reputation: 0, revenueMultiplier: 1.00, customerMultiplier: 1.00, workSpeedMultiplier: 1.00, bonus: 'Базовые скорость разработки и выручка', description: 'Создайте рабочую основу и найдите первых пользователей.' }),
+      Object.freeze({ id: 'firstVersion', name: 'Первая версия', icon: '🚀', product: 22, customers: 8, reputation: 4, revenueMultiplier: 1.08, customerMultiplier: 1.04, workSpeedMultiplier: 1.02, bonus: '+8% к выручке, +4% к привлечению клиентов, +2% к скорости работы', description: 'Продукт уже полезен первым клиентам.' }),
+      Object.freeze({ id: 'growth', name: 'Рост', icon: '📈', product: 45, customers: 30, reputation: 14, revenueMultiplier: 1.20, customerMultiplier: 1.10, workSpeedMultiplier: 1.04, bonus: '+20% к выручке, +10% к привлечению клиентов, +4% к скорости работы', description: 'Команда улучшает продукт и расширяет аудиторию.' }),
+      Object.freeze({ id: 'scaling', name: 'Масштабирование', icon: '🏢', product: 68, customers: 75, reputation: 28, revenueMultiplier: 1.34, customerMultiplier: 1.16, workSpeedMultiplier: 1.06, bonus: '+34% к выручке, +16% к привлечению клиентов, +6% к скорости работы', description: 'Бизнес растёт. После этого этапа можно продолжать развивать продукт без финального экрана.' })
+    ])
   });
 
   const orderedSkillKeys = Object.keys(SKILLS);
@@ -255,11 +257,17 @@
     return Math.max(0, Math.round((BASE.rentBase + BASE.rentPerDesk * desks) * difficultyConfig(difficultyKey).rentMultiplier));
   }
 
-  function incomePerTick(customerCount, product, difficultyKey = 'medium') {
-    const customers = clamp(Number.isFinite(Number(customerCount)) ? Number(customerCount) : 0, 0, BASE.customerIncomeCap);
+  function incomePerTick(customerCount, product, difficultyKey = 'medium', startupType = STARTUP_BALANCE.defaultType, stageIndex = 0, reputation = 0) {
+    const customers = clamp(Number.isFinite(Number(customerCount)) ? Number(customerCount) : 0, 0, BASE.maxCustomers);
+    const revenueCustomers = Math.min(customers, BASE.customerIncomeCap)
+      + Math.max(0, customers - BASE.customerIncomeCap) * BASE.aboveCapCustomerWeight;
     const productValue = clamp(Number.isFinite(Number(product)) ? Number(product) : 0, 0, 100);
-    const productFactor = 0.3 + productValue / 100;
-    return Math.max(0, customers * BASE.arpu * productFactor * difficultyConfig(difficultyKey).incomeMultiplier);
+    const repValue = clamp(Number.isFinite(Number(reputation)) ? Number(reputation) : 0, 0, 100);
+    const type = STARTUP_BALANCE.types[startupType] || STARTUP_BALANCE.types[STARTUP_BALANCE.defaultType];
+    const stage = STARTUP_BALANCE.stages[clamp(Math.floor(Number(stageIndex) || 0), 0, STARTUP_BALANCE.stages.length - 1)];
+    const productFactor = 0.25 + productValue / 100;
+    const trustFactor = 0.85 + repValue / 300;
+    return Math.max(0, revenueCustomers * BASE.arpu * productFactor * trustFactor * type.revenueMultiplier * stage.revenueMultiplier * difficultyConfig(difficultyKey).incomeMultiplier);
   }
 
   function hireCost(salary, difficultyKey = 'medium') {
@@ -403,7 +411,7 @@
   }
 
   return Object.freeze({
-    BASE, CRISIS, DIFFICULTIES, SKILLS, TIERS, TASK_SKILLS, ROLE_WEIGHTS, SPEC_SKILLS, PROJECT_BALANCE,
+    BASE, CRISIS, DIFFICULTIES, SKILLS, TIERS, TASK_SKILLS, ROLE_WEIGHTS, SPEC_SKILLS, STARTUP_BALANCE,
     tierConfig, crisisSettings, safeTier, tierForSalary, salaryForTier, rentForDesks, incomePerTick, hireCost, actionCost,
     pickTier, generateSkills,
     normalizeEmployeeTraits, taskSkillKey, taskSkillLevel, improveTaskSkill

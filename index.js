@@ -142,7 +142,7 @@ async function main() {
   /* ---------- Статические файлы клиента ---------- */
   app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
   for (const file of ['style.css', 'task-ui.js', 'compact-ui.js', 'overlay-ui.js', 'crisis-ui.js', 'employee-config.js', 'character-art.js', 'name-generator.js', 'office-dialogue.js', 'speech-system.js',
-    'decision-dialog.js', 'project-system.js', 'crisis.js', 'crisis-flow.js', 'script.js', 'force-majeure.json', 'force-majeure.js', 'daily-balance.js']) {
+    'decision-dialog.js', 'startup-system.js', 'crisis.js', 'crisis-flow.js', 'script.js', 'force-majeure.json', 'force-majeure.js', 'daily-balance.js']) {
     app.get(`/${file}`, (req, res) => res.sendFile(path.join(__dirname, file)));
   }
 

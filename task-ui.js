@@ -43,15 +43,15 @@
       ]);
     }
 
-    /** Три кнопки выбора задачи для сотрудника. */
-    function choices(person, efficiencyOf, activeProject = null) {
-      const ids = activeProject ? activeProject.allowedWork : (root.ProjectSystem ? root.ProjectSystem.LEGACY_TASKS : ['code', 'ui', 'marketing']);
-      return ids.map(id => C.tasks[id]).filter(Boolean).map(task => {
-        const projectProgress = activeProject && root.ProjectSystem
-          ? Math.floor(root.ProjectSystem.streamProgress(activeProject, task.id)) : null;
-        const detail = activeProject
-          ? `${LABELS[task.id] ? LABELS[task.id].hint : task.name} · этап ${projectProgress}% · эффективность ${Math.round(efficiencyOf(person, task.id))}%`
-          : `${LABELS[task.id] ? LABELS[task.id].hint : task.name} · эффективность ${Math.round(efficiencyOf(person, task.id))}%`;
+    /** Внутренние задачи одного стартапа; специализация влияет на эффективность работы. */
+    function choices(person, efficiencyOf, startupType = 'webService') {
+      const startupConfig = root.EmployeeConfig && root.EmployeeConfig.STARTUP_BALANCE;
+      const type = startupConfig && startupConfig.types[startupType]
+        ? startupConfig.types[startupType] : startupConfig && startupConfig.types[startupConfig.defaultType];
+      return Object.values(C.tasks).map(task => {
+        const multiplier = type && type.taskMultipliers && Number.isFinite(type.taskMultipliers[task.id])
+          ? type.taskMultipliers[task.id] : 1;
+        const detail = `${LABELS[task.id] ? LABELS[task.id].hint : task.name} · бонус типа ×${multiplier.toFixed(2)} · эффективность ${Math.round(efficiencyOf(person, task.id))}%`;
         return h('button', {
           class: `task-choice${person.task === task.id ? ' current' : ''}`, type: 'button',
           'data-act': 'assign', 'data-task': task.id, 'data-key': `task-choice-${task.id}`

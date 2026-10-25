@@ -215,8 +215,20 @@ input:focus-visible{border-color:var(--gold)}
 .difficulty-option:hover{border-color:var(--sky)}.difficulty-option.selected{border-color:var(--gold);box-shadow:inset 0 0 0 1px var(--gold);background:#26384a}
 .difficulty-option b{font-size:18px}.difficulty-option small{color:var(--mute);font-size:12px}.difficulty-option>span:last-child{font-size:12px;color:var(--mint);margin-top:auto}.diff-emoji{font-size:25px}
 .difficulty-details{min-height:52px;padding:12px 14px;margin:16px 0;background:var(--ink);border-radius:8px;color:var(--mute);font-size:13px}
+
+.startup-choice-title{margin:16px 0 6px;font-size:16px}
+.startup-choice-note{margin:0 0 10px!important}
+.startup-type-options{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.startup-type-option{display:flex;flex-direction:column;align-items:flex-start;gap:6px;min-width:0;min-height:150px;padding:12px;text-align:left;background:var(--ink);color:var(--text);border:1px solid var(--line);border-radius:10px;font:inherit;cursor:pointer}
+.startup-type-option:hover{border-color:var(--sky)}
+.startup-type-option.selected{border-color:var(--sky);box-shadow:inset 0 0 0 1px var(--sky);background:#223247}
+.startup-type-option b{font-size:14px;line-height:1.3}
+.startup-type-option small{color:var(--mute);font-size:11px;line-height:1.35}
+.startup-type-option>span:not(.startup-type-icon){color:var(--mint);font-size:11px;line-height:1.4;margin-top:auto}
+.startup-type-icon{font-size:23px;line-height:1.2}
 .difficulty-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
-@media(max-width:650px){.difficulty-options{grid-template-columns:1fr}.difficulty-option{min-height:0}.difficulty-option>span:last-child{margin-top:0}.difficulty-screen{align-items:start;padding:10px}.difficulty-card{margin:auto 0}}
+@media(max-width:1023px){.startup-type-options{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:650px){.difficulty-options{grid-template-columns:1fr}.difficulty-option{min-height:0}.difficulty-option>span:last-child{margin-top:0}.startup-type-options{grid-template-columns:1fr}.startup-type-option{min-height:0}.startup-type-option>span:not(.startup-type-icon){margin-top:0}.difficulty-screen{align-items:start;padding:10px}.difficulty-card{margin:auto 0}}
 
 .cinfo,.ehead>div{min-width:0;overflow-wrap:anywhere}
 
@@ -280,38 +292,21 @@ input:focus-visible{border-color:var(--sky)}
 .task-choice.current{border-color:var(--sky);background:#253246}
 
 
-/* Проекты: карточка активного контракта и форма создания в стиле существующих окон. */
+/* Общие формы и карточки панели стартапа. */
 label select{background:var(--ink);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:10px;min-height:44px;font:inherit;width:100%}
 label select:focus-visible{outline:2px solid var(--sky);outline-offset:2px}
-.project-modal{width:min(680px,100%);display:grid;gap:12px}
-.project-modal h2{margin:0}
-.project-form-intro{margin:0!important}
-.project-preview{background:var(--ink);border:1px solid var(--line);border-radius:9px;padding:12px;color:var(--mute);font-size:12px;line-height:1.5;margin:0!important;white-space:normal}
-.project-error{min-height:0;color:var(--coral)!important;font-size:12px;margin:0!important}
-.project-error:empty{display:none}
-.project-panel-heading{display:flex;align-items:center;gap:10px;padding:10px;background:var(--ink);border:1px solid var(--line);border-radius:10px}
-.project-panel-heading h3{font-size:17px;line-height:1.25;overflow-wrap:anywhere}
-.project-panel-heading p{margin-top:3px}
-.project-type-icon{display:grid;place-items:center;flex:0 0 46px;width:46px;height:46px;border-radius:10px;background:var(--panel2);font-size:25px}
-.project-subtitle{padding-top:6px;border-top:1px solid var(--line);font-size:13px}
-.project-stream{display:grid;gap:4px;padding:5px 0}
-.project-stream-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;font-size:11px}
-.project-stream-head span{color:var(--mute);font-variant-numeric:tabular-nums;white-space:nowrap}
-.project-stream .bar{height:7px}
-.project-empty{display:grid;justify-items:start;gap:9px;padding:14px;background:var(--ink);border:1px solid var(--line);border-radius:10px}
-.project-history-item{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 0;border-bottom:1px solid #ffffff10}
-.project-history-item>div{display:grid;gap:3px;min-width:0}
-.project-history-item .mute{font-size:11px}
-.project-history-item.late .project-history-payout{color:var(--gold)}
-.project-history-payout{white-space:nowrap;color:var(--mint);font-variant-numeric:tabular-nums}
-@media(max-width:380px){.project-modal{padding:16px}.project-modal .difficulty-actions{justify-content:stretch}.project-modal .difficulty-actions .btn{flex:1}}
+.startup-panel-heading{display:flex;align-items:center;gap:10px;padding:10px;background:var(--ink);border:1px solid var(--line);border-radius:10px}
+.startup-panel-heading h3{font-size:17px;line-height:1.25;overflow-wrap:anywhere}
+.startup-panel-heading p{margin-top:3px}
+.startup-type-icon{display:grid;place-items:center;flex:0 0 46px;width:46px;height:46px;border-radius:10px;background:var(--panel2);font-size:25px}
+.startup-subtitle{padding-top:6px;border-top:1px solid var(--line);font-size:13px}
 
 /* Адаптивная компоновка: модальные окна, панель игры и шапка подстраиваются
    под ширину и высоту viewport, включая мобильные браузеры с динамической панелью. */
 :root{--app-height:100dvh}
 @supports not (height:100dvh){:root{--app-height:100vh}}
 
-/* Проекты и остальные диалоги: крупное окно на широких экранах, прокрутка на низких. */
+/* Окна решений и обучения: крупное окно на широких экранах, прокрутка на низких. */
 .dlg-backdrop{
   overflow-x:hidden;
   overflow-y:auto;
@@ -328,18 +323,6 @@ label select:focus-visible{outline:2px solid var(--sky);outline-offset:2px}
   overscroll-behavior:contain;
   scrollbar-gutter:stable;
 }
-.project-modal{
-  width:min(900px,calc(100vw - 32px));
-  max-height:calc(100dvh - 32px);
-  gap:clamp(10px,1.8vh,18px);
-  padding:clamp(18px,3vw,34px);
-}
-.project-modal h2{font-size:clamp(21px,2.5vw,28px)}
-.project-form-intro{font-size:clamp(12px,1.2vw,15px);line-height:1.55}
-.project-modal label{gap:7px;font-size:clamp(12px,1.15vw,14px)}
-.project-modal .project-preview{padding:clamp(12px,2vw,18px);font-size:clamp(12px,1.1vw,14px);line-height:1.55}
-.project-modal .difficulty-actions{gap:10px}
-.project-modal .difficulty-actions .btn{min-width:120px}
 .difficulty-screen,.gameover-screen{overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;padding:max(12px,env(safe-area-inset-top)) 12px max(12px,env(safe-area-inset-bottom))}
 .difficulty-card,.gameover-card{width:min(900px,100%);max-height:calc(100dvh - 24px);overflow-y:auto;overscroll-behavior:contain}
 
@@ -385,9 +368,6 @@ label select:focus-visible{outline:2px solid var(--sky);outline-offset:2px}
   .game-nav{gap:2px;padding:4px max(3px,env(safe-area-inset-right)) max(4px,env(safe-area-inset-bottom)) max(3px,env(safe-area-inset-left))}
   .nav-button{min-width:0;min-height:48px;padding:3px 1px;font-size:9px;gap:2px}
   .nav-button svg{width:20px;height:20px}
-  .project-modal{width:calc(100vw - 20px);max-height:calc(100dvh - 16px);padding:16px;gap:11px}
-  .project-modal .difficulty-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
-  .project-modal .difficulty-actions .btn{min-width:0;width:100%;padding:8px}
   .difficulty-card{padding:16px}
   .difficulty-details{margin:10px 0;padding:10px;font-size:12px}
 }
@@ -398,94 +378,17 @@ label select:focus-visible{outline:2px solid var(--sky);outline-offset:2px}
   .time-readout{font-size:10px}
   .office-pages{font-size:10px}
   #expandButton{font-size:9px;padding:4px}
-  .project-modal{width:calc(100vw - 12px);max-height:calc(100dvh - 8px);padding:12px;gap:9px}
-  .project-modal .dlg-kicker{font-size:10px;margin-bottom:2px}
-  .project-modal h2{font-size:20px}
-  .project-modal .project-preview{padding:10px;font-size:11px}
-  .project-modal .difficulty-actions{grid-template-columns:1fr}
 }
 
 /* Ландшафтный телефон и маленькие окна ноутбуков: экономим высоту, не скрывая прокрутку. */
 @media(min-width:560px) and (max-height:500px){
   .dlg-backdrop{align-items:start;padding:6px 12px}
-  .dlg-modal,.project-modal{max-height:calc(100dvh - 12px);padding:12px 18px;gap:8px}
-  .project-modal h2{font-size:20px}
-  .project-form-intro{font-size:12px}
-  .project-modal .project-preview{padding:8px;font-size:11px}
-  .project-modal label{gap:3px}
-  .project-modal input,.project-modal select{min-height:36px;padding:6px 8px}
-  .project-modal .difficulty-actions .btn{min-height:38px}
+  .dlg-modal{max-height:calc(100dvh - 12px);padding:12px 18px;gap:8px}
   .difficulty-screen,.gameover-screen{align-items:start;padding:6px 10px}
   .difficulty-card,.gameover-card{max-height:calc(100dvh - 12px);padding:12px}
 }
 
 @media(prefers-reduced-motion:reduce){html:focus-within{scroll-behavior:auto}}
-
-
-/* Форма проекта: прокручиваются только поля, кнопки всегда остаются видимыми. */
-#projectDialog{display:flex;align-items:center;justify-content:center;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain}
-#projectDialog .project-modal{
-  display:flex;
-  flex-direction:column;
-  gap:0;
-  min-height:0;
-  max-height:calc(100vh - 32px);
-  max-height:calc(100dvh - 32px);
-  overflow:hidden;
-}
-.project-modal-scroll{
-  display:grid;
-  align-content:start;
-  gap:clamp(8px,1.6vh,16px);
-  flex:1 1 auto;
-  min-height:0;
-  overflow-x:hidden;
-  overflow-y:auto;
-  overscroll-behavior:contain;
-  scrollbar-gutter:stable;
-  padding:2px 6px 12px 2px;
-}
-.project-modal-scroll .dlg-kicker{margin-bottom:0}
-.project-modal-scroll .project-form-intro{margin:0!important}
-.project-modal-scroll label{display:grid;min-width:0}
-.project-modal-scroll .project-preview{margin:0!important}
-.project-modal-actions{
-  position:relative;
-  z-index:1;
-  display:flex;
-  flex:0 0 auto;
-  flex-wrap:wrap;
-  justify-content:flex-end;
-  gap:10px;
-  margin:0;
-  padding:12px 0 0;
-  border-top:1px solid var(--line);
-  background:var(--panel);
-}
-.project-modal-actions .btn{flex:0 1 auto;min-height:44px}
-@media(max-width:650px){
-  #projectDialog .project-modal{max-height:calc(100vh - 16px);max-height:calc(100dvh - 16px)}
-  .project-modal-scroll{gap:9px;padding:1px 4px 10px 1px}
-  .project-modal-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding-top:9px}
-  .project-modal-actions .btn{width:100%;min-width:0;padding:8px}
-}
-@media(max-width:380px){
-  #projectDialog .project-modal{max-height:calc(100vh - 12px);max-height:calc(100dvh - 12px)}
-  .project-modal-actions{grid-template-columns:1fr}
-  .project-modal-actions .btn{min-height:38px}
-}
-@media(min-width:560px) and (max-height:500px){
-  #projectDialog{align-items:flex-start;padding:6px 12px}
-  #projectDialog .project-modal{max-height:calc(100vh - 12px);max-height:calc(100dvh - 12px);padding:12px 18px}
-  .project-modal-scroll{gap:7px;padding-bottom:8px}
-  .project-modal-scroll .dlg-kicker{font-size:10px}
-  .project-modal h2{font-size:20px}
-  .project-modal-scroll .project-form-intro{font-size:12px}
-  .project-modal-scroll label{gap:3px}
-  .project-modal-scroll input,.project-modal-scroll select{min-height:36px;padding:6px 8px}
-  .project-modal-actions{padding-top:8px}
-  .project-modal-actions .btn{min-height:38px}
-}
 
 
 /* Короткое пошаговое обучение: отдельная панель, подсветка реальных элементов, safe-area. */

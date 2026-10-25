@@ -2,7 +2,7 @@
 const { resolveIdentity } = require('./name-generator');
 const EmployeeConfig = require('./employee-config');
 const FinanceCrisis = require('./crisis');
-const ProjectSystem = require('./project-system');
+const StartupSystem = require('./startup-system');
 /* Серверная проверка сохранения: структура и допустимые диапазоны.
    Сервер не пересчитывает игру, он лишь не даёт сохранить мусор и слишком большие данные. */
 
@@ -61,59 +61,58 @@ function flavorState(value) {
   return result;
 }
 
-/** Возвращает «чистую» копию состояния или бросает ошибку, если данные некорректны. */
+/** Возвращает «чистую» копию состояния; старые проектные поля мигрируются без выплат. */
 function normalizeState(s) {
   if (!s || typeof s !== 'object' || Array.isArray(s) || s.v !== 1) fail();
-  const activeProject = ProjectSystem.normalize(s.activeProject);
-  if (s.activeProject && !activeProject) fail();
-  const completedProjects = Array.isArray(s.completedProjects)
-    ? s.completedProjects.slice(0, ProjectSystem.BALANCE.historyLimit).map(ProjectSystem.summary).filter(Boolean)
-    : [];
   const employees = list(s.employees, 10).map(person);
-  if (activeProject) {
-    employees.forEach(employee => {
-      if (!activeProject.allowedWork.includes(employee.task)) employee.task = ProjectSystem.bestWorkFor(activeProject, employee);
-      if (employee.task && employee.status !== 'rest') employee.status = 'work';
-      if (!employee.task && employee.status === 'work') employee.status = 'idle';
-    });
-  } else {
-    employees.forEach(employee => {
-      if (employee.task === 'backend' || employee.task === 'frontend') employee.task = 'code';
-    });
-  }
-  const projectsCompleted = s.projectsCompleted === undefined
-    ? completedProjects.length : int(s.projectsCompleted, 0, 1e6);
-  const minNextProjectId = Math.max(1, activeProject ? activeProject.id + 1 : 1, ...completedProjects.map(project => project.id + 1));
-  const nextProjectId = s.nextProjectId === undefined ? minNextProjectId : int(s.nextProjectId, minNextProjectId, 1e9);
-  return {
+  const candidates = list(s.candidates, 10).map(person);
+  const difficulty = DIFFICULTIES.has(s.difficulty) ? s.difficulty : 'medium';
+  const product = real(s.product, 0, 100);
+  const rep = real(s.rep, 0, 100);
+  const customers = int(s.customers, 0, 1e9);
+  const startupMigration = StartupSystem.migrateLegacy(s);
+  const hasKnownStartupType = StartupSystem.TYPE_IDS.includes(s.startupType);
+  const migrated = {
     v: 1,
-    difficulty: DIFFICULTIES.has(s.difficulty) ? s.difficulty : 'medium',
+    difficulty,
     // Баланс может быть отрицательным: это долг компании.
-    money: real(s.money, EmployeeConfig.BASE.minMoney, EmployeeConfig.BASE.maxMoney), rep: real(s.rep, 0, 100), product: real(s.product, 0, 100),
-    customers: int(s.customers, 0, 1e9), day: int(s.day, 1, 1e6), hour: int(s.hour, 0, 23),
+    money: real(s.money, EmployeeConfig.BASE.minMoney, EmployeeConfig.BASE.maxMoney),
+    rep,
+    product,
+    customers,
+    day: int(s.day, 1, 1e6),
+    hour: int(s.hour, 0, 23),
     speed: [1, 2, 4].includes(s.speed) ? s.speed : fail(),
-    desks: int(s.desks, 4, 10), nextId: int(s.nextId, 1, 1e9), won: typeof s.won === 'boolean' ? s.won : fail(),
+    desks: int(s.desks, 4, 10),
+    nextId: int(s.nextId, 1, 1e9),
+    // Старый флаг означал достижение цели прежней системы; для старых сохранений
+    // пересчитываем рубеж по сохранённым показателям, а не считаем заказный финал победой.
+    won: hasKnownStartupType
+      ? (typeof s.won === 'boolean' ? s.won : fail())
+      : (product >= EmployeeConfig.DIFFICULTIES[difficulty].goal.product
+        && customers >= EmployeeConfig.DIFFICULTIES[difficulty].goal.customers
+        && rep >= EmployeeConfig.DIFFICULTIES[difficulty].goal.reputation),
     selected: s.selected === null ? null : int(s.selected, 0, 1e9),
-    // Старые сохранения не знают о страховке от финансового софтлока.
     rescueUsed: typeof s.rescueUsed === 'boolean' ? s.rescueUsed : false,
-    // Отсутствующее поле означает старое сохранение: считаем обучение просмотренным, не прерывая старую кампанию.
+    // Старое сохранение без отметки не прерываем автоматическим обучением после обновления.
     tutorialSeen: s.tutorialSeen === undefined ? true : (typeof s.tutorialSeen === 'boolean' ? s.tutorialSeen : fail()),
-    activeProject,
-    completedProjects,
-    projectsCompleted,
-    nextProjectId,
+    startupType: startupMigration.startupType,
+    startupStage: startupMigration.startupStage,
+    startupProgress: real(startupMigration.startupProgress, 0, StartupSystem.BALANCE.maxLifetimeWork),
     employees,
-    candidates: list(s.candidates, 10).map(person),
+    candidates,
     log: list(s.log, 40).map(l => {
       if (!l || typeof l !== 'object' || !LOG_TYPES.has(l.type)) fail();
       return { t: str(l.t, 30), text: str(l.text, 200), type: l.type };
     }),
-    // Кризис и поражение необязательны: старые сохранения получают значения по умолчанию.
     crisis: FinanceCrisis.normalizeState(s.crisis),
     gameOver: FinanceCrisis.normalizeGameOver(s.gameOver),
-    // Поля необязательны: старые сохранения мигрируют без потери остального прогресса.
     flavor: flavorState(s.flavor)
   };
+  // Не теряем текущие задачи legacy-сотрудников: code/backend/frontend/ui/marketing
+  // всё ещё являются валидными внутренними направлениями разработки одного продукта.
+  StartupSystem.updateStage(migrated);
+  return migrated;
 }
 
 module.exports = { normalizeState };
