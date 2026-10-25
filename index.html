@@ -2,9 +2,9 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Стартап-тайкун</title>
-<link rel="stylesheet" href="style.css?v=crisis-1">
+<link rel="stylesheet" href="style.css?v=merge-1">
 </head>
 <body>
 <div id="authView" hidden>
@@ -68,46 +68,52 @@
   </div>
 </div>
 <header id="top">
-  <div class="acct">
-    <h1>Стартап-тайкун</h1>
-    <div class="who">
-      <span id="saveStatus" class="mute" aria-live="polite"></span>
-      <span>Аккаунт: <b id="userName"></b></span>
-      <button class="btn sec" type="button" data-act="logout">Выйти</button>
-    </div>
+  <a class="brand" id="brand" href="#" aria-label="Вернуться в офис" data-ui="close"><span class="brand-mark" aria-hidden="true">S<span>·</span></span><span class="brand-name">STARTUP<span>TYCOON</span></span></a>
+  <div class="stats" aria-label="Показатели компании">
+    <button class="stat" type="button" data-ui="company"><span class="lbl">Деньги</span><b id="sMoney">$0</b></button>
+    <button class="stat" type="button" data-ui="company"><span class="lbl">Клиенты</span><b id="sCust">0</b></button>
+    <button class="stat" type="button" data-ui="company"><span class="lbl">Репутация</span><b id="sRep">0</b></button>
+    <button class="stat" type="button" data-ui="company"><span class="lbl">Продукт</span><b id="sProd">0%</b></button>
   </div>
-  <div class="stats">
-    <div class="stat"><span class="lbl">Деньги</span><b id="sMoney"></b></div>
-    <div class="stat"><span class="lbl">Репутация</span><b id="sRep"></b></div>
-    <div class="stat"><span class="lbl">Продукт</span><b id="sProd"></b></div>
-    <div class="stat"><span class="lbl">Клиенты</span><b id="sCust"></b></div>
-    <div class="stat"><span class="lbl">Доход в день</span><b id="sInc"></b></div>
-    <div class="stat"><span class="lbl">Зарплаты + офис в день</span><b id="sExp"></b></div>
-    <div class="stat"><span class="lbl">Время</span><b id="sTime"></b></div>
+  <div class="time-controls">
+    <span id="sTime" class="time-readout">День 1, 09:00</span>
+    <button class="btn sec" type="button" data-act="pause" id="bPause">Пауза</button>
+    <button class="btn sec icon-btn" type="button" data-ui="speed" id="speedButton" aria-label="Изменить скорость игры">1×</button>
+    <button class="icon-btn save-indicator" type="button" id="saveIndicator" data-ui="notices" aria-label="Состояние сохранения" title="Состояние сохранения"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18h10a4 4 0 0 0 .6-8A6 6 0 0 0 6 8.5 4.8 4.8 0 0 0 7 18Z"/><path d="m9 12 2 2 4-4"/></svg></button>
   </div>
-  <div class="barrow">
-    <div id="goal"></div>
-    <div class="ctrl">
-      <button class="btn sec" type="button" data-act="pause" id="bPause">Пауза</button>
-      <button class="btn sec" type="button" data-act="speed" data-v="1" title="Обычная скорость">1×</button>
-      <button class="btn sec" type="button" data-act="speed" data-v="2" title="Скорость ×2">2×</button>
-      <button class="btn sec" type="button" data-act="speed" data-v="4" title="Скорость ×4">4×</button>
-      <button class="btn sec" type="button" data-act="save" title="Сохранить игру на сервере">Сохранить</button>
-      <button class="btn sec" type="button" data-act="load" title="Загрузить игру с сервера">Загрузить</button>
-      <button class="btn sec" type="button" data-act="reset">Начать заново</button>
-    </div>
-  </div>
+  <button type="button" class="crisis-strip" id="crisisStrip" data-ui="company" hidden></button>
 </header>
-
-<div id="notice" class="notice" hidden></div>
-<section id="crisis" class="crisis" hidden aria-live="polite"></section>
-
-<main>
-  <section class="card" style="grid-area:office"><h2>Офис</h2><div id="office"></div><div id="officeFoot" class="foot"></div></section>
-  <section class="card" style="grid-area:emp"><h2>Выбранный сотрудник</h2><div id="emp"></div></section>
-  <section class="card" style="grid-area:tasks"><h2>Задачи</h2><div id="tasks"></div></section>
-  <section class="card" style="grid-area:hire"><h2>Найм</h2><div id="hire"></div></section>
-  <section class="card" style="grid-area:log"><h2>События</h2><ul id="log"></ul></section>
+<div id="accountData" hidden><span id="userName"></span><span id="saveStatus" aria-live="polite"></span></div>
+<nav id="gameNav" class="game-nav" aria-label="Разделы игры">
+  <button type="button" class="nav-button" data-ui="panel" data-value="emp" aria-controls="panelShell" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3 20v-2a6 6 0 0 1 12 0v2M16 5a3 3 0 0 1 0 6m2 3a5 5 0 0 1 3 4v2"/></svg><span>Команда</span></button>
+  <button type="button" class="nav-button" data-ui="panel" data-value="tasks" aria-controls="panelShell" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V2h6v2M9 10h6M9 14h6M9 18h3"/></svg><span>Задачи</span></button>
+  <button type="button" class="nav-button" data-ui="panel" data-value="hire" aria-controls="panelShell" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="7" r="3"/><path d="M3 20v-2a6 6 0 0 1 12 0v2M19 8v8M15 12h8"/></svg><span>Найм</span></button>
+  <button type="button" class="nav-button" data-ui="panel" data-value="log" aria-controls="panelShell" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h14v18H5zM9 7h6M9 11h6M9 15h6"/></svg><span>Журнал</span><i class="nav-dot" hidden></i></button>
+  <button type="button" class="nav-button" data-ui="panel" data-value="menu" aria-controls="panelShell" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg><span>Меню</span></button>
+</nav>
+<main id="workspace" class="workspace">
+  <section id="officeWrap" class="office-wrap" aria-label="Офис">
+    <div id="officeToolbar" class="office-toolbar">
+      <div class="office-pages">
+        <button type="button" class="icon-btn" data-act="officePrev" aria-label="Предыдущая комната">‹</button>
+        <span id="officeRoom">Комната 1 / 1</span>
+        <button type="button" class="icon-btn" data-act="officeNext" aria-label="Следующая комната">›</button>
+      </div>
+      <span id="officeOccupancy" class="office-occupancy">0 / 4</span>
+      <button type="button" class="btn sec" id="expandButton" data-act="expand" title="Расширить офис">+2 места</button>
+    </div>
+    <div id="office"><div class="office-scene"></div></div>
+    <p id="officeHint" class="office-hint">Нажмите на персонажа, чтобы управлять им</p>
+  </section>
+  <aside id="panelShell" class="panel-shell" aria-labelledby="panelTitle" hidden>
+    <header class="panel-header"><h2 id="panelTitle" tabindex="-1">Команда</h2><div id="panelTools" class="panel-tools" hidden></div><button type="button" class="icon-btn panel-close" data-ui="close" aria-label="Закрыть раздел"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></header>
+    <div id="panelTabs" class="panel-tabs" hidden></div>
+    <div id="panelBody" class="panel-body"><div id="panelContent" class="panel-content"></div></div>
+    <div id="panelFooter" class="panel-footer">
+      <div id="panelPager" class="panel-pager" hidden></div>
+      <div id="panelActions" class="panel-actions" hidden></div>
+    </div>
+  </aside>
 </main>
 </div>
 
@@ -118,15 +124,18 @@
     <div id="dlgChoices" class="dlg-choices"></div>
   </section>
 </div>
-<script src="employee-config.js?v=crisis-1"></script>
-<script src="decision-dialog.js?v=crisis-1"></script>
-<script src="force-majeure.js?v=crisis-1"></script>
-<script src="crisis.js?v=crisis-1"></script>
-<script src="crisis-flow.js?v=crisis-1"></script>
-<script src="name-generator.js?v=crisis-1"></script>
-<script src="character-art.js?v=crisis-1"></script>
-<script src="office-dialogue.js?v=crisis-1"></script>
-<script src="speech-system.js?v=crisis-1"></script>
-<script src="script.js?v=crisis-1"></script>
+<script src="employee-config.js?v=merge-1"></script>
+<script src="decision-dialog.js?v=merge-1"></script>
+<script src="force-majeure.js?v=merge-1"></script>
+<script src="crisis.js?v=merge-1"></script>
+<script src="crisis-flow.js?v=merge-1"></script>
+<script src="name-generator.js?v=merge-1"></script>
+<script src="character-art.js?v=merge-1"></script>
+<script src="office-dialogue.js?v=merge-1"></script>
+<script src="speech-system.js?v=merge-1"></script>
+<script src="crisis-ui.js?v=merge-1"></script>
+<script src="overlay-ui.js?v=merge-1"></script>
+<script src="compact-ui.js?v=merge-1"></script>
+<script src="script.js?v=merge-1"></script>
 </body>
 </html>

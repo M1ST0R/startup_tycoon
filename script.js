@@ -38,6 +38,8 @@ let S;                 // текущее состояние (сохраняет�
 let timer = null, paused = false, tickCount = 0, officePage = 0;
 let dialogPausedBefore = false, dialogPauseActive = false;
 let pendingDifficulty = 'medium', difficultyResetMode = false;
+let UI = null;          // компактный интерфейс (compact-ui.js)
+let CrisisView = null;  // экран поражения и сводка кризиса (crisis-ui.js)
 // Система реплик вынесена в speech-system.js; здесь остаётся только интеграция с игрой.
 
 const num = (v, def, min, max) => { const n = Number(v); return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : def; };
@@ -423,9 +425,10 @@ const GAME_OVER_ACTIONS = new Set(['gameover-restart', 'logout', 'diff-select', 
 /** Обработчик всех кнопок (делегирование событий по data-act). */
 function act(ev) {
   const el = ev.target.closest && ev.target.closest('[data-act]');
-  if (!el || !S || $('gameView').hidden || Dialogs.isOpen()) return;
+  if (!el || el.disabled || !S || $('gameView').hidden || Dialogs.isOpen()) return;
   const a = el.dataset.act, e = sel();
   if (S.gameOver && !GAME_OVER_ACTIONS.has(a)) return;      // после поражения доступны только выход и новая кампания
+  if (!$('difficultySetup').hidden && !['diff-select', 'start-difficulty', 'cancel-difficulty'].includes(a)) return;
   if (a === 'officePrev' || a === 'officeNext') {
     officePage = Math.max(0, Math.min(Math.ceil(S.desks / 4) - 1, officePage + (a === 'officeNext' ? 1 : -1)));
     Speech.syncVisibility();
@@ -483,6 +486,7 @@ function act(ev) {
       try { localStorage.removeItem(KEY); } catch (err) { /* хранилище недоступно */ }
       API.legacy = false; break;
   }
+  if (UI) UI.afterAction(a);
   API.dirty = true;
   if (SAVE_ACTIONS.has(a)) scheduleSave();   // важные действия сохраняем сразу (с небольшой задержкой)
   render();
@@ -578,7 +582,7 @@ async function api(method, path, body, keepalive) {
 }
 
 const hhmm = () => new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-function setStatus(t) { const el = $('saveStatus'); if (el) el.textContent = t; }
+function setStatus(t) { const el = $('saveStatus'); if (el) el.textContent = t; if (UI) UI.render(); }
 function scheduleSave() { clearTimeout(API.saveTimer); API.saveTimer = setTimeout(() => pushSave({ silent: true }), 1500); }
 function save(silent) { return pushSave({ silent }); }
 
@@ -663,7 +667,7 @@ function showAuth(msg) {
   $('gameView').hidden = true; $('authView').hidden = false; $('authMsg').textContent = msg || '';
 }
 function showGame() { $('authView').hidden = true; $('gameView').hidden = false; $('userName').textContent = API.user; }
-function resetSession() { Object.assign(API, { user: null, csrf: null, rev: 0, hold: null, legacy: false, dirty: false, queued: null }); resetDialogs(); S = null; officePage = 0; Speech.clear(); }
+function resetSession() { if (UI) UI.reset(); Object.assign(API, { user: null, csrf: null, rev: 0, hold: null, legacy: false, dirty: false, queued: null }); resetDialogs(); S = null; officePage = 0; Speech.clear(); }
 function sessionExpired() { resetSession(); showAuth('Сессия истекла. Войдите снова.'); }
 
 /** Вход в игру после авторизации: грузим сохранение с сервера. */
@@ -737,6 +741,7 @@ async function boot() {
 }
 
 function fresh(difficulty = 'medium') {
+  if (UI) UI.reset();
   clearInterval(timer); timer = null;
   resetDialogs();
   officePage = 0;
@@ -758,7 +763,7 @@ function openDifficultySetup(resetRun) {
   $('cancelDifficulty').hidden = !difficultyResetMode;
   $('difficultySetup').hidden = false;
   renderDifficultySetup();
-  if (S) renderGameOver();   // экран поражения уступает место выбору сложности
+  if (S && CrisisView) CrisisView.renderGameOver(S);   // экран поражения уступает место выбору сложности
 }
 
 function renderDifficultySetup() {
@@ -787,6 +792,7 @@ async function startDifficultyCampaign() {
   showResumeBubble();
   pushSave({ force: replacing, silent: true });
 }
+
 
 /* =====================================================================
    7. ИНТЕРФЕЙС (DOM строится через createElement — без innerHTML)
@@ -819,8 +825,7 @@ const btn = (label, a, cls) => h('button', { class: 'btn ' + (cls || ''), type: 
 function tierDisplay(person) {
   const tier = EmployeeConfig.safeTier(person.tier) || 1;
   return h('div', { class: 'tier-line' },
-    h('span', { class: 'tier-stars', title: `Тир ${tier} из 5`, 'aria-label': `Тир ${tier} из 5` }, '★'.repeat(tier)),
-    h('span', { class: 'mute' }, `Тир ${tier}/5`));
+    h('span', { class: 'tier-stars', title: `Рейтинг ${tier} из 5`, 'aria-label': `Рейтинг ${tier} из 5` }, '★'.repeat(tier)));
 }
 
 function skillRows(person) {
@@ -838,198 +843,32 @@ function skillRows(person) {
   });
 }
 
-function renderTop() {
-  const exp = salaries() + rentCost();
-  $('sMoney').textContent = fmt(S.money);
-  $('sMoney').classList.toggle('neg', S.money < 0);
-  $('sMoney').title = S.money < 0 ? `Долг компании: ${fmt(Crisis.debtOf(S))}` : '';
-  $('sRep').textContent = `${Math.floor(S.rep)} / 100`;
-  $('sProd').textContent = `${Math.floor(S.product)}%`;
-  $('sCust').textContent = S.customers;
-  $('sInc').textContent = fmt(incomeTick() * 24);
-  $('sInc').title = `Выручка ограничена базой ${C.customerIncomeCap} оплачиваемых клиентов; фактически учитывается ${Math.min(C.customerIncomeCap, S.customers)}.`;
-  $('sExp').textContent = fmt(exp);
-  $('sTime').textContent = timeStr();
-  $('bPause').textContent = paused ? 'Продолжить' : 'Пауза';
-  document.querySelectorAll('[data-act="speed"]').forEach(b => b.classList.toggle('on', +b.dataset.v === S.speed));
-  const g = $('goal');
-  g.className = S.won ? 'won' : '';
-  const goal = goalForDifficulty(), difficulty = difficultyConfig();
-  g.textContent = `Сложность: ${difficulty.name} · работа ×${difficulty.employeeSpeed.toFixed(2)} · проекты ×${difficulty.projectComplexity.toFixed(2)} · ` +
-    (S.won ? '🏆 Цель достигнута! ' : 'Цель: ') +
-    `клиенты ${S.customers}/${goal.customers}, репутация ${Math.floor(S.rep)}/${goal.reputation}`;
-  g.title = `Модификатор частоты форс-мажоров: ×${difficulty.forceMajeureFrequency}`;
+function renderOffice() { if (UI) UI.renderOffice(); }
+function render() {
+  if (!S) return;
+  if (UI) UI.render();
+  if (CrisisView) CrisisView.renderGameOver(S);
 }
-
-function renderOffice() {
-  const pages = Math.ceil(S.desks / 4);
-  officePage = Math.min(officePage, pages - 1);
-  const seats = [], roster = [], bubbles = [];
-  for (let slot = 0; slot < 4; slot++) {
-    const i = officePage * 4 + slot;
-    if (i >= S.desks) continue;
-    const e = S.employees.find(x => x.desk === i);
-    const isSelected = !!e && e.id === S.selected;
-    const w = e ? warnings(e) : [];
-    const speech = e ? Speech.getBubble(e.id) : null;
-    if (speech) bubbles.push(h('div', { class: 'speech-bubble', role: 'status', 'aria-live': 'polite',
-      style: `--speech-anchor-x:${slot % 2 ? 68.5 : 32.5}%;--speech-anchor-y:${slot < 2 ? 40 : 62}%` },
-      h('span', { class: 'speech-text' }, speech.text)));
-    seats.push(h('div', { class: `office-seat slot-${slot}${e ? ` ${e.status}` : ' empty'}${isSelected ? ' sel' : ''}`,
-      'data-act': e ? 'select' : null, 'data-id': e ? e.id : null,
-      role: e ? 'button' : null, tabindex: e ? 0 : null,
-      'aria-label': e ? `Выбрать сотрудника ${e.name}` : null },
-      e ? portrait(e, 'avatar--office') : null,
-      CharacterArt.desk(i),
-      isSelected ? h('span', { class: 'seat-bubble', 'aria-hidden': 'true',
-        title: e.task ? C.tasks[e.task].name : STATUS[e.status] },
-        sprite(SPRITES.bubbles[e.status === 'work' ? e.task : e.status], 'ico')) : null,
-      isSelected ? h('span', { class: 'seat-energy', 'aria-hidden': 'true' }, `⚡ ${Math.round(e.energy)}%`) : null,
-      w.length ? h('span', { class: 'seat-warning', title: w.join('. ') }, '⚠') : null));
-    roster.push(h('div', { class: `office-person${isSelected ? ' sel' : ''}` },
-      h('span', { class: 'mute' }, `Место ${i + 1}`),
-      e ? h('button', { type: 'button', 'data-act': 'select', 'data-id': e.id, title: e.name },
-        e.name, ' · ', isSelected && e.status === 'work' && e.task ? C.tasks[e.task].name : STATUS[e.status])
-        : h('span', {}, 'Свободно')));
-  }
-  fill($('office'), [h('div', { class: 'office-scene' }, seats, bubbles), h('div', { class: 'office-roster' }, roster)]);
-  fill($('officeFoot'), [
-    pages > 1 ? h('div', { class: 'office-pages' },
-      h('button', { class: 'btn sec', type: 'button', 'data-act': 'officePrev', disabled: officePage === 0 }, '←'),
-      h('span', {}, `Комната ${officePage + 1} / ${pages}`),
-      h('button', { class: 'btn sec', type: 'button', 'data-act': 'officeNext', disabled: officePage === pages - 1 }, '→')) : null,
-    S.desks < C.maxDesks
-      ? h('button', { class: 'btn sec' + (S.money < deskUpgradeCost() ? ' off' : ''), type: 'button', 'data-act': 'expand' },
-          `Расширить офис: +${C.desksPerUpgrade} места (${fmt(deskUpgradeCost())})`)
-      : h('span', { class: 'mute' }, 'Офис максимального размера.'),
-    h('span', { class: 'mute' }, `Мест занято: ${S.employees.length}/${S.desks}. Аренда: ${fmt(rentCost())} в день.`)
-  ]);
-}
-
-function renderPanel() {
-  const e = sel(), box = $('emp');
-  if (!e) { fill(box, [h('p', { class: 'mute' }, 'Нажмите на сотрудника в офисе, чтобы увидеть его параметры и управлять им.')]); return; }
-  const t = e.task ? C.tasks[e.task] : null;
-  fill(box, [
-    h('div', { class: 'ehead' }, portrait(e, 'avatar--card'),
-      h('div', {}, h('h3', {}, e.name), h('div', { class: 'mute' }, `${C.roles[e.role].name} · ${e.spec}`),
-        tierDisplay(e), h('span', { class: 'badge ' + e.status }, STATUS[e.status]))),
-    h('div', { class: 'employee-skills' }, h('b', {}, 'Навыки'), ...skillRows(e)),
-    stat('Энергия', `${Math.round(e.energy)}%`, e.energy, 100, 'en'),
-    stat('Настроение', `${Math.round(e.mood)}%`, e.mood, 100, 'mood'),
-    h('div', { class: 'row' }, h('span', {}, 'Скорость работы'), h('b', {}, '×' + e.speed.toFixed(2))),
-    h('div', { class: 'row' }, h('span', {}, 'Зарплата'), h('b', {}, fmt(e.salary) + ' в день')),
-    stat('Задача: ' + (t ? t.name : 'не назначена'), t ? `${Math.floor(e.progress / taskWork(t) * 100)}%` : '—', t ? e.progress : 0, t ? taskWork(t) : 1, 'pr'),
-    warnings(e).map(w => h('div', { class: 'warnline' }, '⚠ ' + w)),
-    h('div', { class: 'btns' },
-      e.status === 'rest' ? btn('Вернуть к работе', 'back', 'sec') : btn('Отправить отдыхать', 'rest', 'sec'),
-      t ? btn('Снять с задачи', 'clear', 'sec') : null,
-      btn('Уволить', 'fire', 'sec')),
-    h('p', { class: 'mute' }, 'Новую задачу назначайте в разделе «Задачи».')
-  ]);
-}
-
-function renderTasks() {
-  const s = sel();
-  fill($('tasks'), Object.values(C.tasks).map(t => {
-    const who = S.employees.filter(e => e.task === t.id).map(e => e.name);
-    return h('div', { class: 'task' },
-      h('div', {}, sprite(SPRITES.bubbles[t.id], 'ico'), ' ', h('b', {}, t.name)),
-      h('p', { class: 'mute' }, t.desc),
-      h('div', { class: 'mute' }, `Подходящие навыки: ${EmployeeConfig.TASK_SKILLS[t.id].map(key => EmployeeConfig.SKILLS[key].label).join(' / ')}`),
-      h('div', { class: 'mute' }, `Трудоёмкость проекта: ${taskWork(t)} очков работы`),
-      h('div', { class: 'mute' }, 'Работают: ' + (who.join(', ') || 'никто')),
-      s ? h('div', { class: 'mute' }, `${s.name}: эффективность ${Math.round(efficiency(s, t.id) / C.baseSpeed * 100)}%`) : null,
-      h('button', { class: 'btn' + (s ? '' : ' off'), type: 'button', 'data-act': 'assign', 'data-task': t.id },
-        s ? `Назначить: ${s.name}` : 'Сначала выберите сотрудника'));
-  }));
-}
-
-function renderHire() {
-  const items = S.candidates.map(c => {
-    const fee = hireCost(c);
-    return h('div', { class: 'cand' }, portrait(c, 'avatar--card'),
-      h('div', { class: 'cinfo' }, h('b', {}, c.name),
-        h('div', { class: 'mute' }, `${C.roles[c.role].name} · ${c.spec}`),
-        tierDisplay(c), h('div', { class: 'candidate-skills' }, ...skillRows(c)),
-        h('div', { class: 'mute' }, `Скорость ×${c.speed.toFixed(2)} · оклад ${fmt(c.salary)} в день`)),
-      h('button', { class: 'btn' + (S.money < fee || S.employees.length >= S.desks ? ' off' : ''), type: 'button', 'data-act': 'hire', 'data-id': c.id },
-        `Нанять ${fmt(fee)}`));
-  });
-  const chances = EmployeeConfig.TIERS.map(tier => `${'★'.repeat(tier.id)} ${tier.chance}%`).join(' · ');
-  fill($('hire'), [
-    items.length ? items : h('p', { class: 'mute' }, 'Кандидатов нет. Обновите список.'),
-    h('div', { class: 'tier-probabilities' },
-      h('b', {}, 'Вероятность появления тиров'),
-      h('div', { class: 'mute' }, chances)),
-    h('div', { class: 'foot' }, h('button', { class: 'btn sec' + (S.money < candidateRefreshCost() ? ' off' : ''), type: 'button', 'data-act': 'refresh' },
-      `Обновить список (${fmt(candidateRefreshCost())})`))
-  ]);
-}
-
-function renderLog() {
-  fill($('log'), S.log.slice(0, 16).map(l => h('li', { class: l.type }, h('span', { class: 'lt' }, l.t), ' ' + l.text)));
-}
-
-/** Сообщения о состоянии сохранения: конфликт, повреждение, импорт старого сохранения. */
-function renderNotice() {
-  const box = $('notice'), n = [];
-  const row = (text, ...btns) => h('div', { class: 'nrow' }, h('span', {}, text), ...btns);
-  if (API.hold === 'conflict') n.push(row('Сохранение на сервере изменилось в другой вкладке или на другом устройстве. Автосохранение приостановлено.',
-    btn('Загрузить версию с сервера', 'noticeLoad', 'sec'), btn('Перезаписать сервер моей игрой', 'noticeForce', 'sec')));
-  if (API.hold === 'corrupt') n.push(row('Сохранение на сервере повреждено. Автосохранение выключено.', btn('Начать новую игру', 'noticeForce', 'sec')));
-  if (API.hold === 'noload') n.push(row('Не удалось загрузить сохранение с сервера. Автосохранение выключено, чтобы не затереть прогресс.', btn('Повторить загрузку', 'retryLoad', 'sec')));
-  if (API.legacy) n.push(row('Найдено старое сохранение из этого браузера (без аккаунта).',
-    btn('Импортировать в аккаунт', 'importLocal', 'sec'), btn('Удалить локальное', 'dropLocal', 'sec')));
-  box.hidden = !n.length; fill(box, n);
-}
-
-/** Панель кризиса: долг, дни без денег, действующие дебаффы и состояние отношений с инвестором. */
-function renderCrisis() {
-  const box = $('crisis'), info = Crisis.summary(S), cfg = EmployeeConfig.CRISIS;
-  box.hidden = !info.broke;
-  if (!info.broke) { box.replaceChildren(); return; }
-  const row = (icon, text, active) => h('li', { class: active ? 'on' : '' }, h('span', { class: 'ci' }, icon), text);
-  fill(box, [
-    h('div', { class: 'crisis-head' },
-      h('b', {}, info.debt > 0 ? `Компания в долгу: ${fmt(info.debt)}` : 'Деньги закончились'),
-      h('span', { class: 'mute' }, `День без денег: ${info.days}`)),
-    h('ul', {},
-      row('🙁', info.moodDrain > 0
-        ? `Долг выше ${fmt(cfg.freeDebt)}: настроение сотрудников −${info.moodDrain.toFixed(2)} в час`
-        : `Долг до ${fmt(cfg.freeDebt)}: настроение пока не страдает`, info.moodDrain > 0),
-      row('🐢', info.speedMultiplier < 1
-        ? `Давно нет денег: скорость работы ×${info.speedMultiplier.toFixed(2)}`
-        : `С ${cfg.speedPenaltyStartDay}-го дня без денег сотрудники начнут работать медленнее`, info.speedMultiplier < 1),
-      row('🚪', info.quitPhase
-        ? `Каждые ${cfg.quitRollHours} ч сотрудники могут уволиться из-за долгов по зарплате (следующая проверка через ${info.hoursToQuitRoll} ч)`
-        : `С ${cfg.quitStartDay}-го дня без денег сотрудники начнут увольняться`, info.quitPhase),
-      info.concealing ? row('🕵️', 'Вы скрываете проблему от инвестора: при запросе отчёта вас могут разоблачить', true) : null)
-  ]);
-}
-
-/** Экран поражения: показывается поверх игры, пока в состоянии есть gameOver. */
-function renderGameOver() {
-  const screen = $('gameOverScreen'), over = S && S.gameOver;
-  screen.hidden = !(over && $('difficultySetup').hidden);
-  if (!over) return;
-  const reason = Crisis.GAME_OVER_REASONS[over.reason];
-  $('goIcon').textContent = reason.icon;
-  $('goTitle').textContent = reason.title;
-  $('goText').textContent = reason.text;
-  fill($('goStats'), [
-    ['Дней прожито', over.day], ['Клиентов', over.customers], ['Репутация', `${over.rep} / 100`], ['Продукт', `${over.product}%`]
-  ].map(([label, value]) => h('li', {}, h('span', { class: 'mute' }, label), h('b', {}, String(value)))));
-}
-
-function render() { if (!S) return; renderTop(); renderCrisis(); renderOffice(); renderPanel(); renderTasks(); renderHire(); renderLog(); renderNotice(); renderGameOver(); }
 
 /* =====================================================================
    8. ЗАПУСК
    Клики обрабатываются по pointerup, чтобы кнопки не «терялись»,
    когда интерфейс перерисовывается во время тика.
    ===================================================================== */
-document.addEventListener('pointerup', ev => { if (ev.button === 0) act(ev); });
+let pressedAction = null;
+const actionSignature = el => ['act', 'id', 'task', 'v'].map(key => el.dataset[key] || '').join('|');
+document.addEventListener('pointerup', ev => {
+  if (ev.button !== 0) return;
+  const pressed = pressedAction; pressedAction = null;
+  const target = ev.target.closest && ev.target.closest('[data-act]');
+  // A tick may change Rest to Back (or repaginate a card) while the pointer is down.
+  if (pressed && target === pressed.node && ev.pointerId === pressed.pointerId && actionSignature(target) === pressed.signature) act(ev);
+});
+document.addEventListener('pointerdown', ev => {
+  const node = ev.target.closest && ev.target.closest('[data-act]');
+  pressedAction = ev.button === 0 && node ? { node, pointerId: ev.pointerId, signature: actionSignature(node) } : null;
+});
+document.addEventListener('pointercancel', () => { pressedAction = null; });
 document.addEventListener('click', ev => { if (ev.detail === 0) act(ev); });      // клавиатура
 document.addEventListener('keydown', ev => {                                      // Enter/пробел на «div-кнопках»
   if ((ev.key === 'Enter' || ev.key === ' ') && ev.target.matches && ev.target.matches('div[data-act]')) { ev.preventDefault(); act(ev); }
@@ -1042,5 +881,20 @@ window.addEventListener('pagehide', flush);
 document.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)));
 $('formLogin').addEventListener('submit', ev => submitAuth('login', ev));
 $('formRegister').addEventListener('submit', ev => submitAuth('register', ev));
+CrisisView = CrisisUI.create({ h, fmt, Crisis, EmployeeConfig });
+UI = CompactUI.create({
+  h, btn, stat, tierDisplay, skillRows, portrait, fmt, C, STATUS, Speech,
+  state: () => S, api: () => API, selected: sel, paused: () => paused,
+  officePage: () => officePage, timeStr, rentCost, salaries, incomeTick,
+  difficultyConfig, taskWork, efficiency, warnings,
+  hireCost, refreshCost: candidateRefreshCost, deskCost: deskUpgradeCost,
+  crisisBlocks: () => CrisisView.summary(S), crisisStrip: () => CrisisView.stripText(S),
+  select(id) {
+    const person = S.employees.find(e => e.id === id);
+    if (!person) return;
+    S.selected = id; officePage = Math.floor(person.desk / 4); Speech.syncVisibility();
+  },
+  setSpeed(value) { S.speed = value; API.dirty = true; restartTimer(); }
+});
 CharacterArt.load().then(() => { if (S) render(); }).catch(err => console.error('Не удалось загрузить изображения персонажей:', err));
 ForceMajeureSystem.init().finally(boot);
