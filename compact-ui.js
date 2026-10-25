@@ -42,7 +42,7 @@
     const control = (label, name, value, props = {}) => h('button', { class: 'btn sec', type: 'button', 'data-ui': name, 'data-value': value, ...props }, label);
     const text = (value, cls = '') => h('p', { class: cls }, value);
     const row = (label, value) => h('div', { class: 'info-row' }, h('span', { class: 'mute' }, label), h('b', {}, value));
-    const modalOpen = () => !$('difficultySetup').hidden || !$('decisionModal').hidden || !$('gameOverScreen').hidden || !$('projectDialog').hidden;
+    const modalOpen = () => !$('difficultySetup').hidden || !$('decisionModal').hidden || !$('gameOverScreen').hidden || !$('projectDialog').hidden || !$('tutorialShade').hidden;
     const tab = (value, label) => control(label, 'tab', value, { class: 'panel-tab', 'aria-pressed': String(tabs[section] === value) });
     const pagingButtons = (name, count, index) => [
       control('‹', name, -1, { class: 'btn sec icon-btn', 'aria-label': 'Предыдущий', disabled: index <= 0 }),
@@ -232,7 +232,7 @@
         } else content = [row('Аккаунт', api.user || ''), text($('saveStatus').textContent || 'Автосохранение включено', 'mute'),
           h('div', { class: 'menu-grid' }, action('Сохранить', 'save'), action('Загрузить', 'load')),
           h('div', { class: 'menu-grid' }, action('Новая игра', 'reset'), action('Выйти', 'logout')),
-          control('Справка по игре', 'help', '')];
+          h('div', { class: 'menu-grid' }, control('Обучение', 'tutorial', ''), control('Справка по игре', 'help', ''))];
       }
       return { content, tools, tabNodes, actions, context };
     }
@@ -417,6 +417,7 @@
           if (!state().candidates.some(c => c.id === Number(value))) return;
           candidateId = Number(value); hireDetail = true; pages.delete(`hire:detail:${candidateId}`); focusAfter = 'details'; break;
         case 'candidate-back': hireDetail = false; focusAfter = 'pool'; break;
+        case 'tutorial': d.startTutorial(); return;
         case 'help': tabs.menu = 'help'; break;
         case 'help-back': tabs.menu = 'game'; break;
         case 'page': pages.set(currentContext, Math.max(0, Math.min(pageCount - 1, (pages.get(currentContext) || 0) + Number(value)))); break;

@@ -67,7 +67,7 @@ function defaultFlavorState() {
 
 function newState() {
   return { v: 1, difficulty: 'medium', money: DIFFICULTIES.medium.startingMoney, rep: 0, product: 0, customers: 0, day: 1, hour: 9, speed: 1,
-           desks: C.startDesks, nextId: 1, employees: [], candidates: [], log: [], won: false, selected: null, rescueUsed: false,
+           desks: C.startDesks, nextId: 1, employees: [], candidates: [], log: [], won: false, selected: null, rescueUsed: false, tutorialSeen: false,
            activeProject: null, completedProjects: [], projectsCompleted: 0, nextProjectId: 1,
            crisis: Crisis.defaultState(), gameOver: null,
            flavor: defaultFlavorState() };
@@ -484,6 +484,13 @@ function dialogPause(value) {
 
 /** Снимает все окна и очереди форс-мажоров (смена игры, выход, поражение) и возвращает прежнюю паузу. */
 function resetDialogs() {
+  if ($('tutorialShade') && !$('tutorialShade').hidden) {
+    $('tutorialShade').hidden = true; $('tutorialSpotlight').hidden = true; $('tutorialCard').hidden = true;
+    document.body.classList.remove('tutorial-open');
+    window.removeEventListener('resize', positionTutorial);
+    window.visualViewport?.removeEventListener('resize', positionTutorial);
+    tutorialReturnFocus = null;
+  }
   ForceMajeureSystem.reset();
   Dialogs.clear();
   if ($('projectDialog')) $('projectDialog').hidden = true;
@@ -611,7 +618,7 @@ const GAME_OVER_ACTIONS = new Set(['gameover-restart', 'logout', 'diff-select', 
 /** Обработчик всех кнопок (делегирование событий по data-act). */
 function act(ev) {
   const el = ev.target.closest && ev.target.closest('[data-act]');
-  if (!el || el.disabled || !S || $('gameView').hidden || Dialogs.isOpen() || !$('projectDialog').hidden) return;
+  if (!el || el.disabled || !S || $('gameView').hidden || Dialogs.isOpen() || !$('projectDialog').hidden || !$('tutorialShade').hidden) return;
   const a = el.dataset.act, e = sel();
   if (S.gameOver && !GAME_OVER_ACTIONS.has(a)) return;      // после поражения доступны только выход и новая кампания
   if (!$('difficultySetup').hidden && !['diff-select', 'start-difficulty', 'cancel-difficulty'].includes(a)) return;
@@ -711,6 +718,8 @@ function sanitize(r) {
   s.difficulty = DIFFICULTIES[r.difficulty] ? r.difficulty : 'medium';
   s.desks = Math.floor(num(r.desks, C.startDesks, C.startDesks, C.maxDesks)); s.won = !!r.won;
   s.rescueUsed = typeof r.rescueUsed === 'boolean' ? r.rescueUsed : false;
+  // Старая кампания считается уже знакомой игроку: не прерываем её обучением после обновления.
+  s.tutorialSeen = typeof r.tutorialSeen === 'boolean' ? r.tutorialSeen : true;
   s.activeProject = ProjectSystem.normalize(r.activeProject);
   s.completedProjects = (Array.isArray(r.completedProjects) ? r.completedProjects : [])
     .map(ProjectSystem.summary).filter(Boolean).slice(0, EmployeeConfig.PROJECT_BALANCE.historyLimit);
@@ -746,7 +755,7 @@ function sanitize(r) {
   const originalPeople = [...(Array.isArray(r.employees) ? r.employees : []), ...(Array.isArray(r.candidates) ? r.candidates : [])];
   let migratedState = !r.flavor || !r.crisis || !DIFFICULTIES[r.difficulty] || typeof r.rescueUsed !== 'boolean'
     || !Object.hasOwn(r, 'activeProject') || !Array.isArray(r.completedProjects)
-    || !Number.isFinite(r.projectsCompleted) || !Number.isFinite(r.nextProjectId) || people.some(person => {
+    || !Number.isFinite(r.projectsCompleted) || !Number.isFinite(r.nextProjectId) || typeof r.tutorialSeen !== 'boolean' || people.some(person => {
     const original = originalPeople.find(p => p && p.id === person.id);
     return !original || original.gender !== person.gender
       || JSON.stringify(original.appearance) !== JSON.stringify(person.appearance)
@@ -989,6 +998,169 @@ function renderDifficultySetup() {
   document.querySelector('[data-act="start-difficulty"]').textContent = difficultyResetMode ? 'Начать новую кампанию' : 'Начать игру';
 }
 
+const TUTORIAL_STEPS = Object.freeze([
+  {
+    title: 'Ориентируйся по верхней панели',
+    text: 'Здесь находятся Деньги, Клиенты, Репутация и процент создания активного продукта. Нажатие на показатель открывает сводку компании. Цель кампании — выполнить требования по проектам, клиентам и репутации.',
+    hint: 'Точные целевые значения, доход и расходы смотри в «Меню → Компания».',
+    target: '#top'
+  },
+  {
+    title: 'Найми первого сотрудника',
+    text: 'Открой «Найм», выбери кандидата и изучи его карточку. Сравнивай специализации и уровни навыков, скорость, тир и ежедневный оклад. Найм стоит денег, а свободное место в офисе обязательно.',
+    hint: 'Не нанимай сразу всех: зарплаты и аренда списываются по игровым дням.',
+    target: '#gameNav [data-value="hire"]'
+  },
+  {
+    title: 'Изучи команду и назначь работу',
+    text: 'В «Команде» или по нажатию на персонажа в офисе открой карточку сотрудника. Там видны энергия, настроение, навыки, скорость и зарплата. Через «Назначить задачу» выбери, чем сотрудник будет заниматься.',
+    hint: 'Низкая энергия снижает эффективность. Кнопка «Отдых» помогает восстановиться.',
+    target: '#gameNav [data-value="emp"]'
+  },
+  {
+    title: 'Следи за выполнением',
+    text: 'Раздел «Задачи» показывает, кто над чем работает. Если проект активен, здесь видна работа команды; в «Проектах» дополнительно следи за процентом каждого этапа, общим прогрессом, качеством и дедлайном.',
+    hint: 'Подходящие специализации ускоряют работу. Просрочка не отменяет проект, но уменьшает выплату и репутацию.',
+    target: '#gameNav [data-value="tasks"]'
+  },
+  {
+    title: 'Создай первый проект',
+    text: 'Открой «Проекты» и нажми «Создать проект». Выбери шаблон, название и срок. После запуска команда получит этапы автоматически; при необходимости распределение можно изменить. Деньги начислят только после завершения всех этапов.',
+    hint: 'Доступны шаблоны сайта, веб-сервиса, мобильного приложения и инди-игры.',
+    target: '#gameNav [data-value="projects"]'
+  },
+  {
+    title: 'Контролируй экономику и цель',
+    text: 'В «Меню → Компания» смотри доход за день, расходы на зарплаты и аренду, текущую сложность и целевые показатели. Лёгкая сложность прощает ошибки, нормальная требует планирования, сложная повышает расходы, замедляет разработку и учащает форс-мажоры.',
+    hint: 'Сохраняй положительный баланс, следи за состоянием команды и сдавай проекты, чтобы привлекать клиентов и репутацию.',
+    target: '#gameNav [data-value="menu"]'
+  }
+]);
+let tutorialIndex = 0;
+let tutorialReturnFocus = null;
+
+function positionTutorial() {
+  if ($('tutorialCard').hidden || $('tutorialShade').hidden) return;
+  const step = TUTORIAL_STEPS[tutorialIndex];
+  const target = step && document.querySelector(step.target);
+  const spotlight = $('tutorialSpotlight');
+  const shadeTop = $('tutorialShadeTop'), shadeRight = $('tutorialShadeRight');
+  const shadeBottom = $('tutorialShadeBottom'), shadeLeft = $('tutorialShadeLeft');
+  const viewportWidth = window.innerWidth, viewportHeight = window.innerHeight;
+  let left = 0, top = 0, width = viewportWidth, height = viewportHeight;
+  if (target && target.getClientRects().length) {
+    const rect = target.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) {
+      left = Math.max(3, Math.min(viewportWidth - 8, rect.left - 4));
+      top = Math.max(3, Math.min(viewportHeight - 8, rect.top - 4));
+      width = Math.max(0, Math.min(viewportWidth - left - 3, rect.right - rect.left + 8));
+      height = Math.max(0, Math.min(viewportHeight - top - 3, rect.bottom - rect.top + 8));
+      $('tutorialCard').classList.toggle('at-bottom', rect.top + rect.height / 2 < viewportHeight / 2);
+      $('tutorialCard').classList.toggle('at-top', rect.top + rect.height / 2 >= viewportHeight / 2);
+      spotlight.style.left = `${left}px`;
+      spotlight.style.top = `${top}px`;
+      spotlight.style.width = `${width}px`;
+      spotlight.style.height = `${height}px`;
+      spotlight.hidden = false;
+    } else spotlight.hidden = true;
+  } else spotlight.hidden = true;
+  // Четыре заслонки оставляют реальное прозрачное окно вокруг нужного элемента.
+  const rects = [
+    [shadeTop, 0, 0, viewportWidth, top],
+    [shadeRight, left + width, top, Math.max(0, viewportWidth - left - width), height],
+    [shadeBottom, 0, top + height, viewportWidth, Math.max(0, viewportHeight - top - height)],
+    [shadeLeft, 0, top, left, height]
+  ];
+  rects.forEach(([node, x, y, w, h]) => {
+    node.style.left = `${x}px`; node.style.top = `${y}px`;
+    node.style.width = `${Math.max(0, w)}px`; node.style.height = `${Math.max(0, h)}px`;
+  });
+  if (spotlight.hidden) {
+    shadeTop.style.left = '0'; shadeTop.style.top = '0';
+    shadeTop.style.width = `${viewportWidth}px`; shadeTop.style.height = `${viewportHeight}px`;
+    [shadeRight, shadeBottom, shadeLeft].forEach(node => { node.style.width = '0'; node.style.height = '0'; });
+    $('tutorialCard').classList.remove('at-top');
+    $('tutorialCard').classList.add('at-bottom');
+  }
+}
+
+function renderTutorialStep() {
+  const step = TUTORIAL_STEPS[tutorialIndex];
+  const last = tutorialIndex === TUTORIAL_STEPS.length - 1;
+  $('tutorialTitle').textContent = step.title;
+  $('tutorialText').textContent = step.text;
+  $('tutorialHint').textContent = step.hint || '';
+  $('tutorialHint').hidden = !step.hint;
+  $('tutorialStepCount').textContent = `Шаг ${tutorialIndex + 1} из ${TUTORIAL_STEPS.length}`;
+  $('tutorialProgressFill').style.width = `${(tutorialIndex + 1) / TUTORIAL_STEPS.length * 100}%`;
+  $('tutorialBack').hidden = tutorialIndex === 0;
+  $('tutorialNext').hidden = last;
+  $('tutorialFinish').hidden = !last;
+  requestAnimationFrame(positionTutorial);
+}
+
+function startTutorial() {
+  if (!S || $('gameView').hidden || !$('difficultySetup').hidden || !$('decisionModal').hidden || !$('projectDialog').hidden || !$('gameOverScreen').hidden || !$('tutorialShade').hidden) return;
+  tutorialReturnFocus = document.activeElement;
+  if (UI) UI.close();
+  tutorialIndex = 0;
+  $('tutorialShade').hidden = false;
+  $('tutorialSpotlight').hidden = true;
+  $('tutorialCard').hidden = false;
+  document.body.classList.add('tutorial-open');
+  dialogPause(true);
+  renderTutorialStep();
+  $('tutorialNext').focus({ preventScroll: true });
+  window.addEventListener('resize', positionTutorial);
+  window.visualViewport?.addEventListener('resize', positionTutorial);
+}
+
+function closeTutorial(markSeen = true, restoreFocus = true) {
+  if (!$('tutorialShade') || $('tutorialShade').hidden) return;
+  $('tutorialShade').hidden = true;
+  $('tutorialSpotlight').hidden = true;
+  $('tutorialCard').hidden = true;
+  document.body.classList.remove('tutorial-open');
+  window.removeEventListener('resize', positionTutorial);
+  window.visualViewport?.removeEventListener('resize', positionTutorial);
+  if (markSeen && S) {
+    S.tutorialSeen = true;
+    API.dirty = true;
+    scheduleSave();
+  }
+  dialogPause(false);
+  const focus = tutorialReturnFocus;
+  tutorialReturnFocus = null;
+  if (restoreFocus) {
+    const fallback = document.querySelector('#gameNav [data-value="menu"]');
+    (focus && focus.isConnected ? focus : fallback)?.focus({ preventScroll: true });
+  }
+}
+
+function stepTutorial(delta) {
+  tutorialIndex = Math.max(0, Math.min(TUTORIAL_STEPS.length - 1, tutorialIndex + delta));
+  renderTutorialStep();
+  (tutorialIndex === TUTORIAL_STEPS.length - 1 ? $('tutorialFinish') : $('tutorialNext')).focus({ preventScroll: true });
+}
+
+$('tutorialBack').addEventListener('click', () => stepTutorial(-1));
+$('tutorialNext').addEventListener('click', () => stepTutorial(1));
+$('tutorialSkip').addEventListener('click', () => closeTutorial(true));
+$('tutorialFinish').addEventListener('click', () => closeTutorial(true));
+document.addEventListener('keydown', ev => {
+  if ($('tutorialShade').hidden) return;
+  if (ev.key === 'Escape') { ev.preventDefault(); ev.stopImmediatePropagation(); closeTutorial(true); }
+  else if (ev.key === 'ArrowRight') { ev.preventDefault(); ev.stopImmediatePropagation(); if (tutorialIndex < TUTORIAL_STEPS.length - 1) stepTutorial(1); else closeTutorial(true); }
+  else if (ev.key === 'ArrowLeft' && tutorialIndex > 0) { ev.preventDefault(); ev.stopImmediatePropagation(); stepTutorial(-1); }
+  else if (ev.key === 'Tab') {
+    const buttons = [...$('tutorialCard').querySelectorAll('button:not([hidden]):not(:disabled)')];
+    if (!buttons.length) return;
+    const first = buttons[0], last = buttons[buttons.length - 1];
+    if (ev.shiftKey && document.activeElement === first) { ev.preventDefault(); last.focus(); }
+    else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first.focus(); }
+  }
+});
+
 async function startDifficultyCampaign() {
   const replacing = difficultyResetMode;
   $('difficultySetup').hidden = true;
@@ -1002,6 +1174,8 @@ async function startDifficultyCampaign() {
   restartTimer();
   showResumeBubble();
   pushSave({ force: replacing, silent: true });
+  // Автопоказ — только для новой кампании; пропуск/завершение записываются в аккаунт.
+  if (!S.tutorialSeen) requestAnimationFrame(() => startTutorial());
 }
 
 
@@ -1115,7 +1289,8 @@ UI = CompactUI.create({
     if (!person) return;
     S.selected = id; officePage = Math.floor(person.desk / 4); Speech.syncVisibility();
   },
-  setSpeed(value) { S.speed = value; API.dirty = true; restartTimer(); }
+  setSpeed(value) { S.speed = value; API.dirty = true; restartTimer(); },
+  startTutorial() { startTutorial(); }
 });
 CharacterArt.load().then(() => { if (S) render(); }).catch(err => console.error('Не удалось загрузить изображения персонажей:', err));
 ForceMajeureSystem.init().finally(boot);

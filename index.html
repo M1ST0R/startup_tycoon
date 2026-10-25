@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Стартап-тайкун</title>
-<link rel="stylesheet" href="style.css?v=product-progress-1">
+<link rel="stylesheet" href="style.css?v=tutorial-1">
 </head>
 <body>
 <div id="authView" hidden>
@@ -115,6 +115,31 @@
     </div>
   </aside>
 </main>
+<div id="tutorialShade" class="tutorial-shade" hidden aria-hidden="true">
+  <span id="tutorialShadeTop" class="tutorial-shade-rect"></span>
+  <span id="tutorialShadeRight" class="tutorial-shade-rect"></span>
+  <span id="tutorialShadeBottom" class="tutorial-shade-rect"></span>
+  <span id="tutorialShadeLeft" class="tutorial-shade-rect"></span>
+</div>
+<div id="tutorialSpotlight" class="tutorial-spotlight" hidden aria-hidden="true"></div>
+<section id="tutorialCard" class="tutorial-card" hidden role="dialog" aria-modal="true" aria-labelledby="tutorialTitle" aria-describedby="tutorialText">
+  <div class="tutorial-card-head">
+    <span class="tutorial-kicker">🚀 БЫСТРЫЙ СТАРТ</span>
+    <span id="tutorialStepCount" class="tutorial-step-count">Шаг 1 из 6</span>
+  </div>
+  <div class="tutorial-progress-track" aria-hidden="true"><span id="tutorialProgressFill"></span></div>
+  <div class="tutorial-card-copy">
+    <h2 id="tutorialTitle">Как играть</h2>
+    <p id="tutorialText"></p>
+    <p id="tutorialHint" class="tutorial-hint" hidden></p>
+  </div>
+  <div class="tutorial-actions">
+    <button class="btn sec" type="button" id="tutorialBack">Назад</button>
+    <button class="btn sec tutorial-skip" type="button" id="tutorialSkip">Пропустить</button>
+    <button class="btn" type="button" id="tutorialNext">Далее</button>
+    <button class="btn" type="button" id="tutorialFinish" hidden>Завершить</button>
+  </div>
+</section>
 </div>
 
 
@@ -164,7 +189,7 @@
 <script src="overlay-ui.js?v=merge-2"></script>
 <script src="daily-balance.js?v=merge-2"></script>
 <script src="task-ui.js?v=projects-2"></script>
-<script src="compact-ui.js?v=product-progress-1"></script>
-<script src="script.js?v=projects-2"></script>
+<script src="compact-ui.js?v=tutorial-1"></script>
+<script src="script.js?v=tutorial-1"></script>
 </body>
 </html>

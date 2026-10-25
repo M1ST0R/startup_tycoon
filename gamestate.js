@@ -96,6 +96,8 @@ function normalizeState(s) {
     selected: s.selected === null ? null : int(s.selected, 0, 1e9),
     // Старые сохранения не знают о страховке от финансового софтлока.
     rescueUsed: typeof s.rescueUsed === 'boolean' ? s.rescueUsed : false,
+    // Отсутствующее поле означает старое сохранение: считаем обучение просмотренным, не прерывая старую кампанию.
+    tutorialSeen: s.tutorialSeen === undefined ? true : (typeof s.tutorialSeen === 'boolean' ? s.tutorialSeen : fail()),
     activeProject,
     completedProjects,
     projectsCompleted,
