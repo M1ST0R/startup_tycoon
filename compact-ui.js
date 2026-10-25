@@ -2,7 +2,7 @@
 (function (root) {
   'use strict';
   const $ = id => document.getElementById(id);
-  const titles = { emp: 'Команда', tasks: 'Задачи', hire: 'Найм', log: 'Журнал', menu: 'Меню' };
+  const titles = { emp: 'Команда', tasks: 'Задачи', assign: 'Назначить задачу', hire: 'Найм', log: 'Журнал', menu: 'Меню' };
 
   // Reconcile nodes instead of replacing live controls on every simulation tick.
   function key(node) {
@@ -29,7 +29,7 @@
 
   function create(d) {
     const { h, btn, stat, tierDisplay, skillRows, portrait, fmt, C } = d;
-    let section = null, candidateId = null, taskId = 'code', hireDetail = false;
+    let section = null, candidateId = null, hireDetail = false;
     let tabs = { menu: 'game' };
     let pages = new Map(), logSnapshot = null, pageCount = 1, lastFocus = null;
     let frame = 0, lastMeasureKey = '', measuredPages = [], currentContext = '';
@@ -37,6 +37,7 @@
     meter.style.cssText = 'position:fixed;left:-10000px;top:0;visibility:hidden;pointer-events:none;height:auto;max-height:none;contain:layout style;';
     document.body.append(meter);
     const state = d.state;
+    const taskUI = TaskUI.create({ h, portrait, C });
     const action = (label, name, props = {}) => h('button', { class: 'btn sec', type: 'button', 'data-act': name, ...props }, label);
     const control = (label, name, value, props = {}) => h('button', { class: 'btn sec', type: 'button', 'data-ui': name, 'data-value': value, ...props }, label);
     const text = (value, cls = '') => h('p', { class: cls }, value);
@@ -56,7 +57,7 @@
       if (section !== value && value === 'log') logSnapshot = state().log.slice();
       if (section !== value && value === 'hire') hireDetail = false;
       section = value;
-      if (value === 'emp' && !d.selected() && state().employees.length) d.select(state().employees[0].id);
+      if ((value === 'emp' || value === 'assign') && !d.selected() && state().employees.length) d.select(state().employees[0].id);
       render();
       requestAnimationFrame(() => { if (!modalOpen()) $('panelTitle').focus({ preventScroll: true }); });
     }
@@ -65,7 +66,7 @@
       if (lastFocus?.isConnected && !lastFocus.closest('[hidden]')) lastFocus.focus({ preventScroll: true });
     }
     function reset() {
-      section = null; candidateId = null; taskId = 'code'; hireDetail = false; pages.clear(); logSnapshot = null;
+      section = null; candidateId = null; hireDetail = false; pages.clear(); logSnapshot = null;
       tabs = { menu: 'game' }; lastMeasureKey = '';
       if ($('panelShell')) { $('panelShell').hidden = true; $('gameView').classList.remove('panel-open'); }
     }
@@ -100,20 +101,17 @@
         tools = pagingButtons('employee', s.employees.length, s.employees.indexOf(person));
         context += `:${person.id}`;
         content = employeeContent(person);
-        actions = [control('Задача', 'open', 'tasks'), action(person.status === 'rest' ? 'К работе' : 'Отдых', person.status === 'rest' ? 'back' : 'rest', { 'data-key': 'employee-rest' })];
+        actions = [control('Назначить задачу', 'open', 'assign'), action(person.status === 'rest' ? 'К работе' : 'Отдых', person.status === 'rest' ? 'back' : 'rest', { 'data-key': 'employee-rest' })];
       } else if (section === 'tasks') {
-        const task = C.tasks[taskId] || C.tasks.code;
-        context += `:${task.id}:${person?.id || 0}`;
-        tabNodes = Object.values(C.tasks).map((t, i) => control(['Продукт', 'Интерфейс', 'Реклама'][i], 'task', t.id,
-          { class: 'panel-tab', 'aria-pressed': String(task.id === t.id) }));
-        content = [h('h3', {}, task.name), text(task.desc),
-          text(`Навыки: ${EmployeeConfig.TASK_SKILLS[task.id].map(k => EmployeeConfig.SKILLS[k].label).join(' / ')}`, 'mute'),
-          row('Трудоёмкость', `${d.taskWork(task)} очков`),
-          text(person ? `Сотрудник: ${person.name}` : 'Выберите сотрудника для назначения.'),
-          ...(person ? [row('Эффективность', `${Math.round(d.efficiency(person, task.id) / C.baseSpeed * 100)}%`)] : []),
-          text('Работают: ' + (s.employees.filter(e => e.task === task.id).map(e => e.name).join(', ') || 'никто'), 'mute')];
-        actions = person ? [action('Назначить задачу', 'assign', { class: 'btn', 'data-task': task.id }), control('Сотрудник', 'open', 'emp')]
-          : [control(s.employees.length ? 'Выбрать сотрудника' : 'Нанять сотрудника', 'open', s.employees.length ? 'emp' : 'hire')];
+        content = taskUI.overview(s.employees);
+        actions = s.employees.length ? [] : [control('Нанять сотрудника', 'open', 'hire')];
+      } else if (section === 'assign') {
+        if (!person) return { content: [text('Сначала наймите сотрудника.')], actions: [control('Найти сотрудника', 'open', 'hire')], context };
+        context += `:${person.id}`;
+        tools = [control('‹ Назад', 'open', 'emp', { class: 'btn sec' })];
+        const task = C.tasks[person.task];
+        content = [personHeader(person), text(task ? `Сейчас: ${TaskUI.titleOf(task.id)}` : 'Задача не назначена', 'mute'),
+          ...taskUI.choices(person, (p, id) => d.efficiency(p, id) / C.baseSpeed * 100)];
       } else if (section === 'hire') {
         const c = hireDetail ? s.candidates.find(person => person.id === candidateId) : null;
         if (!c) hireDetail = false;
@@ -281,7 +279,7 @@
       scene.inert = scene.clientWidth < 152;
     }
     function renderTop() {
-      const s = state(), api = d.api();
+      const s = state();
       const compact = value => Math.floor(value).toLocaleString('ru-RU', { notation: 'compact', maximumFractionDigits: 1 });
       $('sMoney').textContent = Math.abs(s.money) >= 100000 ? '$' + compact(s.money) : fmt(s.money);
       $('sMoney').classList.toggle('neg', s.money < 0);
@@ -299,12 +297,6 @@
       $('bPause').title = d.paused() ? 'Продолжить' : 'Пауза';
       $('bPause').setAttribute('aria-pressed', String(d.paused()));
       $('speedButton').textContent = `${s.speed}×`;
-      const status = $('saveStatus').textContent;
-      const warning = !!api.hold || api.legacy || /ошибка|нет связи/i.test(status);
-      $('saveIndicator').classList.toggle('has-warning', warning);
-      $('saveIndicator').textContent = warning ? '!' : '✓';
-      $('saveIndicator').title = status || 'Автосохранение';
-      $('saveIndicator').setAttribute('aria-label', warning ? 'Внимание: состояние сохранения' : 'Состояние сохранения');
     }
     function render() {
       if (!state() || $('gameView').hidden) return;
@@ -312,8 +304,9 @@
       $('gameView').classList.toggle('panel-open', !!section);
       $('gameView').classList.toggle('hire-pool-open', section === 'hire' && !hireDetail);
       $('panelShell').hidden = !section;
+      const navSection = section === 'assign' ? 'emp' : section;   // «Назначить задачу» — часть карточки сотрудника
       document.querySelectorAll('[data-ui="panel"]').forEach(n => {
-        n.classList.toggle('on', n.dataset.value === section); n.setAttribute('aria-expanded', String(n.dataset.value === section));
+        n.classList.toggle('on', n.dataset.value === navSection); n.setAttribute('aria-expanded', String(n.dataset.value === navSection));
       });
       if (section) {
         $('panelShell').dataset.section = section; $('panelTitle').textContent = section === 'hire' && hireDetail ? 'Кандидат' : titles[section];
@@ -341,9 +334,8 @@
         case 'open': open(value); return;
         case 'close': close(); return;
         case 'company': tabs.menu = 'company'; open('menu'); return;
-        case 'notices': tabs.menu = d.api().hold || d.api().legacy ? 'notices' : 'game'; open('menu'); return;
         case 'tab': tabs[section] = value; break;
-        case 'task': if (C.tasks[value]) taskId = value; break;
+        case 'employee-open': if (!state().employees.some(e => e.id === Number(value))) return; d.select(Number(value)); open('emp'); return;
         case 'speed': d.setSpeed(C.speeds[(C.speeds.indexOf(state().speed) + 1) % C.speeds.length]); break;
         case 'employee': {
           const people = state().employees, index = people.indexOf(d.selected());
@@ -381,7 +373,7 @@
             if (section === 'hire' && !modalOpen()) (document.querySelector('[data-ui="candidate-details"]') || $('panelTitle')).focus({ preventScroll: true });
           });
         }
-        if (action === 'select') open('emp');
+        if (action === 'select' || action === 'assign') open('emp');
       },
       get section() { return section; } };
   }

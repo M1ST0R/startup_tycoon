@@ -1,13 +1,12 @@
 /*
  * Изолированный слой форс-мажоров. Конфиг загружается отдельно из force-majeure.json.
  * Показ окон, очередь и пауза игры — в decision-dialog.js (общая очередь с кризисными решениями);
- * здесь остаются только выбор событий, условия, отложенные события и применение последствий.
+ * здесь остаются только выбор событий, условия и применение последствий.
  *
  * Необязательные хуки в callbacks (для связи с другими системами, без знания о них):
- *   isDismissible(event) → false убирает кнопки «Отложить» и «Игнорировать»;
  *   eventWeight(event, baseWeight) → число: подстройка частоты выпадения события;
  *   describe(event) → строка: текст окна вместо event.description;
- *   onResolved(event, { type: 'choice', choice } | { type: 'ignored' }) — игрок закрыл событие.
+ *   onResolved(event, { type: 'choice', choice }) — игрок выбрал вариант.
  */
 (function (root) {
   'use strict';
@@ -17,19 +16,17 @@
     employees: { icon: '👥', label: 'Команда', color: '#6db7ff' },
     office: { icon: '🏢', label: 'Офис', color: '#ff7a6b' }
   };
-  const DEFER_MS = 30000;
   let config = [], lastTick = -100, tickNo = 0;
   let deps = null, sessionState = null, generation = 0;
   let loadPromise = null, firstHireHandled = false, pendingFirstHire = false;
-  const seen = new Set(), deferred = new Map(), inFlight = new Set();
+  const seen = new Set(), inFlight = new Set();
   const currentState = () => deps && deps.getState ? deps.getState() : sessionState;
   const validSession = () => !!sessionState && currentState() === sessionState;
 
   function reset() {
     generation++;
     if (deps && deps.dialogs) deps.dialogs.clear(OWNER);
-    for (const timer of deferred.values()) clearTimeout(timer);
-    deferred.clear(); seen.clear(); inFlight.clear();
+    seen.clear(); inFlight.clear();
     firstHireHandled = false; pendingFirstHire = false;
     lastTick = -100; tickNo = 0; sessionState = null; deps = null;
   }
@@ -48,7 +45,7 @@
       (!conditions.minRep || s.rep >= conditions.minRep) && (!event.once || !seen.has(event.id));
   }
 
-  const alreadyPending = event => inFlight.has(event.id) || deferred.has(event.id);
+  const alreadyPending = event => inFlight.has(event.id);
 
   function weightOf(event) {
     const base = event.weight || 1;
@@ -78,24 +75,7 @@
     return true;
   }
 
-  function ignore(event) {
-    if (!validSession()) return false;
-    if (event.once) seen.add(event.id);
-    if (deps.onResolved) deps.onResolved(event, { type: 'ignored' });
-    return true;
-  }
-
-  function postpone(event) {
-    const epoch = generation;
-    deferred.set(event.id, setTimeout(() => {
-      deferred.delete(event.id);
-      if (generation !== epoch || !validSession() || !eligible(event, currentState())) return;
-      submit(event);
-    }, DEFER_MS));
-  }
-
   function dialogFor(event) {
-    const dismissible = !deps.isDismissible || deps.isDismissible(event) !== false;
     return {
       id: event.id, owner: OWNER, priority: 0,
       kind: TYPE[event.type] || { icon: '⚠️', label: event.type, color: '#ffcf4a' },
@@ -104,16 +84,11 @@
       // Доступность платных вариантов проверяется в момент показа, а не постановки в очередь.
       choices: () => {
         const s = currentState();
-        const options = event.choices.map(choice => {
+        return event.choices.map(choice => {
           const cost = -((choice.effects && choice.effects.money) || 0);
           const short = cost > 0 && s.money < cost;
           return { label: choice.label + (short ? ' (не хватает денег)' : ''), disabled: short, run: () => resolve(choice, event) };
         });
-        if (dismissible) {
-          options.push({ label: 'Отложить', secondary: true, run: () => { postpone(event); } });
-          options.push({ label: 'Игнорировать', secondary: true, run: () => ignore(event) });
-        }
-        return options;
       },
       isValid: () => validSession() && eligible(event, currentState()),
       onDrop: () => inFlight.delete(event.id),
@@ -176,6 +151,6 @@
 
   root.ForceMajeureSystem = Object.freeze({
     init, reset, onTick, onHire,
-    get pending() { return inFlight.size + deferred.size; }
+    get pending() { return inFlight.size; }
   });
 })(typeof window !== 'undefined' ? window : globalThis);

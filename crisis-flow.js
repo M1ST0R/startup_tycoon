@@ -154,8 +154,6 @@
     /** Хуки для ForceMajeureSystem: добавляются в его callbacks. */
     function forceMajeureHooks() {
       return {
-        // Скрывая кризис, нельзя отложить или проигнорировать запрос отчёта — это был бы побег от проверки.
-        isDismissible: event => !(isAudit(event) && Crisis.isConcealing(state())),
         eventWeight: (event, base) => (isAudit(event) ? base * Crisis.auditWeightMultiplier(state()) : base),
         describe: event => (isAudit(event) && Crisis.isConcealing(state()) ? `${event.description} ${TEXT.auditNote}` : event.description),
         onResolved: event => { if (isAudit(event)) inspectBooks(); }
