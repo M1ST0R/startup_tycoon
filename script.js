@@ -68,6 +68,7 @@ function defaultFlavorState() {
 function newState() {
   return { v: 1, difficulty: 'medium', money: DIFFICULTIES.medium.startingMoney, rep: 0, product: 0, customers: 0, day: 1, hour: 9, speed: 1,
            desks: C.startDesks, nextId: 1, employees: [], candidates: [], log: [], won: false, selected: null, rescueUsed: false,
+           activeProject: null, completedProjects: [], projectsCompleted: 0, nextProjectId: 1,
            crisis: Crisis.defaultState(), gameOver: null,
            flavor: defaultFlavorState() };
 }
@@ -158,7 +159,7 @@ function genCandidate() {
 function efficiency(e, taskId) {
   const matchedLevel = EmployeeConfig.taskSkillLevel(e, taskId);
   const skillFactor = matchedLevel > 0 ? 0.4 + matchedLevel * 0.12 : 0.4;
-  return C.baseSpeed * difficultyConfig().employeeSpeed * e.speed * C.roles[e.role].fit[taskId] * skillFactor
+  return C.baseSpeed * difficultyConfig().employeeSpeed * e.speed * EmployeeConfig.tierConfig(e.tier).workSpeedMultiplier * C.roles[e.role].fit[taskId] * skillFactor
        * (0.4 + 0.6 * e.energy / 100) * (0.5 + 0.5 * e.mood / 100)
        * Crisis.speedMultiplier(S);   // дебафф «давно нет денег»
 }
@@ -209,8 +210,43 @@ function completeTask(e, t) {
   if (Math.floor(e.skill) > Math.floor(skill0)) flavor('skillUp', flavorContext(e, t), { type: 'good' });
 }
 
+/** Продвигает проектную работу. Деньги и результаты начисляются только при финальной сдаче проекта. */
+function workOnProject(e, t, project) {
+  if (!project || !project.allowedWork.includes(t.id)) return;
+  const amount = efficiency(e, t.id);
+  const skillLevel = EmployeeConfig.taskSkillLevel(e, t.id);
+  const accepted = ProjectSystem.addWork(project, t.id, amount, skillLevel);
+
+  // Навык и опыт растут только за принятую работу, а не за пустые тики у уже закрытого этапа.
+  if (accepted > 0) {
+    e.progress += accepted;
+    const workPackage = Math.max(12, t.work || 24);
+    while (e.progress >= workPackage) {
+      e.progress -= workPackage;
+      const growth = EmployeeConfig.improveTaskSkill(e, t.id);
+      const legacySkill = e.skill;
+      e.skill = Math.min(10, e.skill + 0.12);
+      e.mood = Math.min(100, e.mood + 2);
+      if (growth && growth.improved) log(`${e.name} улучшил навык «${EmployeeConfig.SKILLS[growth.key].label}»: ${growth.next}/10`, 'good');
+      if (Math.floor(e.skill) > Math.floor(legacySkill)) flavor('skillUp', flavorContext(e, t), { type: 'good' });
+    }
+  }
+
+  // Второй сотрудник мог закрыть этот поток в том же тике. Переключаемся даже если addWork вернул 0,
+  // иначе сотрудник навсегда останется назначенным на уже завершённый этап.
+  if (ProjectSystem.isWorkComplete(project, t.id)) {
+    const nextTask = ProjectSystem.bestWorkFor(project, e);
+    e.task = nextTask;
+    e.progress = 0;
+    e.status = nextTask ? 'work' : 'idle';
+    if (nextTask) log(`${e.name} завершил этап «${EmployeeConfig.PROJECT_BALANCE.workTypes[t.id].label}» и переключился на «${EmployeeConfig.PROJECT_BALANCE.workTypes[nextTask].label}»`, 'good');
+    else log(`${e.name} завершил свою часть проекта`, 'good');
+    syncEmployeeReaction(e);
+  }
+}
+
 /** Один тик работы сотрудника: работа, отдых или простой. */
-function workEmployee(e) {
+function workEmployee(e, projectForTick = S.activeProject) {
   const en0 = e.energy, mo0 = e.mood;
   if (e.status === 'rest') {
     e.energy = Math.min(100, e.energy + C.restEnergy);
@@ -226,19 +262,30 @@ function workEmployee(e) {
     e.mood = Math.max(0, e.mood - 0.25);
     flavor('idle', flavorContext(e), { type: 'info' });
   } else {
-    e.status = 'work';
-    e.energy = Math.max(0, e.energy - C.workEnergy);
-    e.mood = e.energy < 25 ? Math.max(0, e.mood - 0.6) : Math.min(100, e.mood + 0.05);
-    if (e.energy <= C.autoRestBelow) {
-      e.status = 'rest';
-      log(`${e.name} выбился из сил и ушёл отдыхать`, 'warn');
-      flavor('rest', flavorContext(e, e.task ? C.tasks[e.task] : null), { type: 'warn' });
-    } else {
-      const t = C.tasks[e.task];
-      e.progress += efficiency(e, e.task);
-      flavor('taskWork', flavorContext(e, t), { type: 'info' });
-      const requiredWork = taskWork(t);
-      if (e.progress >= requiredWork) { e.progress -= requiredWork; completeTask(e, t); }
+    const t = C.tasks[e.task];
+    if (!t) { e.task = null; e.progress = 0; e.status = 'idle'; }
+    else {
+      e.status = 'work';
+      e.energy = Math.max(0, e.energy - C.workEnergy);
+      e.mood = e.energy < 25 ? Math.max(0, e.mood - 0.6) : Math.min(100, e.mood + 0.05);
+      if (e.energy <= C.autoRestBelow) {
+        e.status = 'rest';
+        log(`${e.name} выбился из сил и ушёл отдыхать`, 'warn');
+        flavor('rest', flavorContext(e, t), { type: 'warn' });
+      } else if (projectForTick) {
+        if (S.activeProject === projectForTick && projectForTick.allowedWork.includes(e.task)) {
+          workOnProject(e, t, projectForTick);
+          flavor('taskWork', flavorContext(e, C.tasks[e.task] || t), { type: 'info' });
+        } else {
+          // Никакая старая задача не должна случайно платить доход, пока идёт заказной проект.
+          e.task = null; e.progress = 0; e.status = 'idle';
+        }
+      } else {
+        e.progress += efficiency(e, e.task);
+        flavor('taskWork', flavorContext(e, t), { type: 'info' });
+        const requiredWork = taskWork(t);
+        if (e.progress >= requiredWork) { e.progress -= requiredWork; completeTask(e, t); }
+      }
     }
   }
   e.mood = Math.max(0, e.mood - Crisis.moodDrainPerTick(S));   // дебафф «большой долг»
@@ -250,6 +297,48 @@ function workEmployee(e) {
     log(`${e.name} недоволен`, 'warn');
     flavor('lowMood', flavorContext(e, e.task ? C.tasks[e.task] : null), { type: 'warn' });
   }
+}
+
+/** Расчёт выплаты и результата выполняется ровно один раз, когда закрыты все потоки проекта. */
+function settleActiveProject() {
+  const project = S.activeProject;
+  if (!project || project.rewardClaimed || !ProjectSystem.isComplete(project)) return false;
+  const settlement = ProjectSystem.finalize(project, gameTickIndex());
+  if (!settlement) return false;
+  const { completedTick, late, quality, reward, outcomes: results } = settlement;
+
+  S.money = Math.min(C.maxMoney, Math.max(C.minMoney, S.money + reward.payout));
+  S.product = Math.min(100, S.product + results.product);
+  S.rep = Math.min(100, S.rep + results.reputation);
+  S.customers = Math.min(C.maxCustomers, S.customers + results.customers);
+  if (late) S.rep = Math.max(0, S.rep - EmployeeConfig.PROJECT_BALANCE.lateReputationPenalty);
+
+  S.projectsCompleted = Math.min(1e6, S.projectsCompleted + 1);
+  const summary = ProjectSystem.summary({
+    id: project.id, templateId: project.templateId, name: project.name, quality,
+    startedTick: project.startedTick, deadlineTick: project.deadlineTick, completedTick, late,
+    payout: reward.payout, baseReward: reward.base, qualityMultiplier: reward.qualityMultiplier,
+    deadlineMultiplier: reward.deadlineMultiplier, difficultyMultiplier: reward.difficultyMultiplier, outcomes: results
+  });
+  S.completedProjects.unshift(summary);
+  S.completedProjects = S.completedProjects.slice(0, EmployeeConfig.PROJECT_BALANCE.historyLimit);
+  S.activeProject = null;
+
+  // Проект завершён: сотрудники больше не остаются на несуществующих проектных задачах.
+  S.employees.forEach(employee => {
+    employee.task = null; employee.progress = 0;
+    if (employee.status !== 'rest') employee.status = 'idle';
+    syncEmployeeReaction(employee);
+  });
+  const template = ProjectSystem.templateOf(project.templateId);
+  log(`✅ Проект «${project.name}» завершён: качество ${quality}/100, ${late ? 'дедлайн просрочен' : 'дедлайн соблюдён'}`, late ? 'warn' : 'good');
+  log(`Выплата: ${fmt(reward.base)} × качество ${reward.qualityMultiplier.toFixed(2)} × срок ${reward.deadlineMultiplier.toFixed(2)} × сложность ${reward.difficultyMultiplier.toFixed(2)} = ${fmt(reward.payout)}`, 'good');
+  log(`Результат проекта: ${template.name}; продукт +${results.product}%, репутация +${results.reputation}${late ? ` (штраф за просрочку −${EmployeeConfig.PROJECT_BALANCE.lateReputationPenalty})` : ''}, клиенты +${results.customers}`, 'info');
+  flavor('taskSuccess', { name: 'Команда проекта', task: template.name }, { type: 'good', force: true });
+  checkGoal();
+  API.dirty = true;
+  scheduleSave();
+  return true;
 }
 
 /* =====================================================================
@@ -282,10 +371,103 @@ function payDay() {
 
 function checkGoal() {
   const goal = goalForDifficulty();
-  if (!S.won && S.customers >= goal.customers && S.rep >= goal.reputation) {
+  if (!S.won && S.customers >= goal.customers && S.rep >= goal.reputation && S.projectsCompleted >= goal.projects) {
     S.won = true;
-    log('🏆 Цель достигнута: ваш стартап стал успешной компанией! Можно играть дальше.', 'good');
+    log(`🏆 Цель достигнута: ${S.projectsCompleted} проектов, ${S.customers} клиентов и репутация ${Math.floor(S.rep)}. Стартап стал успешной компанией! Можно играть дальше.`, 'good');
   }
+}
+
+function tickTimeLabel(tick) {
+  const safe = Math.max(0, Math.floor(Number(tick) || 0));
+  return `День ${Math.floor(safe / 24) + 1}, ${String(safe % 24).padStart(2, '0')}:00`;
+}
+
+function projectPreviewText() {
+  const templateId = $('projectType')?.value;
+  const deadlineId = $('projectDeadline')?.value;
+  const template = ProjectSystem.templateOf(templateId);
+  if (!template) return 'Выберите тип проекта.';
+  const example = ProjectSystem.create({ id: 1, templateId, name: 'Пример проекта', deadlineId,
+    startTick: gameTickIndex(), difficultyKey: S.difficulty });
+  if (!example) return template.description;
+  const low = ProjectSystem.rewardBreakdown(example, EmployeeConfig.PROJECT_BALANCE.qualityBase, false).payout;
+  const high = ProjectSystem.rewardBreakdown(example, 100, false).payout;
+  const work = Object.entries(example.workWeights)
+    .map(([key, weight]) => `${EmployeeConfig.PROJECT_BALANCE.workTypes[key].label} ${Math.round(weight * 100)}%`).join(' · ');
+  return `${template.description} Объём: ${example.totalWork} единиц. Срок: ${example.deadlineDays} игровых дней. Выплата при сдаче в срок: ${fmt(low)}–${fmt(high)}. Этапы: ${work}. Выплата зависит от качества и дедлайна; до завершения денег за проект нет.`;
+}
+
+function updateProjectPreview() {
+  const preview = $('projectPreview');
+  if (preview) preview.textContent = projectPreviewText();
+}
+
+function openProjectDialog() {
+  if (!S || S.gameOver) return;
+  if (S.activeProject) return log(`Сначала завершите активный проект «${S.activeProject.name}»`, 'warn');
+  if (!S.employees.length) {
+    log('Для старта проекта наймите хотя бы одного сотрудника', 'warn');
+    if (UI) UI.open('hire');
+    return;
+  }
+  const typeSelect = $('projectType'), deadlineSelect = $('projectDeadline');
+  if (!typeSelect.options.length) {
+    Object.values(EmployeeConfig.PROJECT_BALANCE.templates).forEach(template => {
+      const option = document.createElement('option'); option.value = template.id; option.textContent = `${template.icon} ${template.name}`;
+      typeSelect.append(option);
+    });
+  }
+  if (!deadlineSelect.options.length) {
+    EmployeeConfig.PROJECT_BALANCE.deadlines.forEach(deadline => {
+      const option = document.createElement('option'); option.value = deadline.id;
+      option.textContent = `${deadline.name} · ${deadline.days} дней`;
+      deadlineSelect.append(option);
+    });
+  }
+  $('projectName').value = '';
+  typeSelect.value = Object.keys(EmployeeConfig.PROJECT_BALANCE.templates)[0];
+  deadlineSelect.value = 'standard';
+  $('projectError').textContent = '';
+  updateProjectPreview();
+  $('projectDialog').hidden = false;
+  dialogPause(true);
+  $('projectName').focus({ preventScroll: true });
+}
+
+function closeProjectDialog() {
+  if ($('projectDialog').hidden) return;
+  $('projectDialog').hidden = true;
+  $('projectError').textContent = '';
+  dialogPause(false);
+  render();
+}
+
+function startProject(templateId, rawName, deadlineId) {
+  if (!S || S.gameOver) return { ok: false, error: 'Сейчас нельзя начать проект.' };
+  if (S.activeProject) return { ok: false, error: 'Сначала завершите активный проект.' };
+  if (!S.employees.length) return { ok: false, error: 'Сначала наймите хотя бы одного сотрудника.' };
+  const project = ProjectSystem.create({ id: S.nextProjectId, templateId, name: rawName,
+    deadlineId, startTick: gameTickIndex(), difficultyKey: S.difficulty });
+  if (!project) return { ok: false, error: `Название должно содержать ${EmployeeConfig.PROJECT_BALANCE.nameMinLength}–${EmployeeConfig.PROJECT_BALANCE.nameMaxLength} символов, а тип и срок должны быть из списка.` };
+
+  S.nextProjectId = Math.min(1e9, S.nextProjectId + 1);
+  S.activeProject = project;
+  // Текущие назначения переводятся на проектные потоки; команда сразу начинает полезную работу.
+  S.employees.forEach(employee => {
+    employee.task = ProjectSystem.bestWorkFor(project, employee);
+    employee.progress = 0;
+    if (employee.task && employee.status !== 'rest') employee.status = 'work';
+    else if (!employee.task && employee.status !== 'rest') employee.status = 'idle';
+    syncEmployeeReaction(employee);
+  });
+  const template = ProjectSystem.templateOf(project.templateId);
+  log(`🚀 Начат проект «${project.name}» (${template.name}). Дедлайн: ${tickTimeLabel(project.deadlineTick)}; объём ${project.totalWork} единиц.`, 'good');
+  log(`Команда распределена по этапам: ${project.allowedWork.map(key => `${EmployeeConfig.PROJECT_BALANCE.workTypes[key].label} ${Math.round(project.workWeights[key] * 100)}%`).join(', ')}`, 'info');
+  API.dirty = true;
+  closeProjectDialog();
+  scheduleSave();
+  render();
+  return { ok: true };
 }
 
 /** Единая пауза на время любого окна с вопросом: запоминает прежнее состояние паузы и возвращает его. */
@@ -304,6 +486,7 @@ function dialogPause(value) {
 function resetDialogs() {
   ForceMajeureSystem.reset();
   Dialogs.clear();
+  if ($('projectDialog')) $('projectDialog').hidden = true;
   if (dialogPauseActive) paused = dialogPausedBefore;
   dialogPauseActive = false;
   document.body.classList.remove('dialog-open');
@@ -360,7 +543,9 @@ function tick() {
     let newDay = false;
     S.hour++;
     if (S.hour >= 24) { S.hour = 0; S.day++; newDay = true; payDay(); }
-    S.employees.forEach(workEmployee);
+    const projectForTick = S.activeProject;
+    S.employees.forEach(employee => workEmployee(employee, projectForTick));
+    if (projectForTick) settleActiveProject();
     S.money = Math.min(C.maxMoney, Math.max(C.minMoney, S.money + incomeTick()));
     Flow.afterTick({ newDay });
     if (S.gameOver) return;            // handleGameOver уже остановил время и показал экран
@@ -412,11 +597,12 @@ function hire(id) {
 function assign(taskId) {
   const e = sel();
   if (!e) return log('Сначала выберите сотрудника в офисе', 'warn');
-  if (!C.tasks[taskId]) return;
+  const allowed = S.activeProject ? S.activeProject.allowedWork : ProjectSystem.LEGACY_TASKS;
+  if (!C.tasks[taskId] || !allowed.includes(taskId)) return;
   if (e.task !== taskId) e.progress = 0;
   e.task = taskId; e.status = 'work';
   syncEmployeeReaction(e);
-  log(`${e.name} назначен на «${C.tasks[taskId].name}»`);
+  log(`${e.name} назначен на «${C.tasks[taskId].name}»${S.activeProject ? ` в проекте «${S.activeProject.name}»` : ''}`);
   flavor('taskStart', flavorContext(e, C.tasks[taskId]), { type: 'info', force: true });
 }
 
@@ -425,7 +611,7 @@ const GAME_OVER_ACTIONS = new Set(['gameover-restart', 'logout', 'diff-select', 
 /** Обработчик всех кнопок (делегирование событий по data-act). */
 function act(ev) {
   const el = ev.target.closest && ev.target.closest('[data-act]');
-  if (!el || el.disabled || !S || $('gameView').hidden || Dialogs.isOpen()) return;
+  if (!el || el.disabled || !S || $('gameView').hidden || Dialogs.isOpen() || !$('projectDialog').hidden) return;
   const a = el.dataset.act, e = sel();
   if (S.gameOver && !GAME_OVER_ACTIONS.has(a)) return;      // после поражения доступны только выход и новая кампания
   if (!$('difficultySetup').hidden && !['diff-select', 'start-difficulty', 'cancel-difficulty'].includes(a)) return;
@@ -437,6 +623,7 @@ function act(ev) {
   switch (a) {
     case 'select': if (S.employees.some(x => x.id === +el.dataset.id)) S.selected = +el.dataset.id; break;
     case 'assign': assign(el.dataset.task); break;
+    case 'project-new': openProjectDialog(); return;
     case 'rest': if (e) { e.status = 'rest'; syncEmployeeReaction(e); log(`${e.name} отправлен отдыхать`); showCharacterLine(e, 'rest', flavorContext(e, e.task ? C.tasks[e.task] : null), { force: true, priority: 9 }); } break;
     case 'back': if (e) { e.status = e.task ? 'work' : 'idle'; syncEmployeeReaction(e); log(`${e.name} вернулся к работе`); showCharacterLine(e, e.energy < 85 ? 'energyLow' : 'energyRecovered', flavorContext(e, e.task ? C.tasks[e.task] : null), { force: true, priority: 4 }); } break;
     case 'clear': if (e) { e.task = null; e.progress = 0; e.status = 'idle'; syncEmployeeReaction(e); log(`${e.name} снят с задачи`); showCharacterLine(e, 'idle', flavorContext(e), { force: true, priority: 3 }); } break;
@@ -524,6 +711,11 @@ function sanitize(r) {
   s.difficulty = DIFFICULTIES[r.difficulty] ? r.difficulty : 'medium';
   s.desks = Math.floor(num(r.desks, C.startDesks, C.startDesks, C.maxDesks)); s.won = !!r.won;
   s.rescueUsed = typeof r.rescueUsed === 'boolean' ? r.rescueUsed : false;
+  s.activeProject = ProjectSystem.normalize(r.activeProject);
+  s.completedProjects = (Array.isArray(r.completedProjects) ? r.completedProjects : [])
+    .map(ProjectSystem.summary).filter(Boolean).slice(0, EmployeeConfig.PROJECT_BALANCE.historyLimit);
+  s.projectsCompleted = Math.floor(num(r.projectsCompleted, s.completedProjects.length, 0, 1e6));
+  s.nextProjectId = Math.floor(num(r.nextProjectId, 1, 1, 1e9));
   s.crisis = Crisis.normalizeState(r.crisis);
   s.gameOver = Crisis.normalizeGameOver(r.gameOver);
   s.employees = (Array.isArray(r.employees) ? r.employees : []).map(cleanPerson).filter(Boolean).slice(0, s.desks);
@@ -531,11 +723,30 @@ function sanitize(r) {
   s.employees.forEach(e => { if (e.desk < 0 || e.desk >= s.desks || used.has(e.desk)) e.desk = -1; else used.add(e.desk); });
   s.employees.forEach(e => { if (e.desk < 0) { let d = 0; while (used.has(d)) d++; e.desk = d; used.add(d); } });
   s.candidates = (Array.isArray(r.candidates) ? r.candidates : []).map(cleanPerson).filter(Boolean).slice(0, C.candidates);
+  if (s.activeProject) {
+    s.employees.forEach(person => {
+      if (!s.activeProject.allowedWork.includes(person.task)) {
+        person.task = ProjectSystem.bestWorkFor(s.activeProject, person);
+        person.progress = 0;
+      }
+      if (person.task && person.status !== 'rest') person.status = 'work';
+      if (!person.task && person.status === 'work') person.status = 'idle';
+    });
+    s.nextProjectId = Math.max(s.nextProjectId, s.activeProject.id + 1);
+  } else {
+    // Старые/проектные назначения Backend и Frontend безопасно переводим в прежнюю общую разработку.
+    s.employees.forEach(person => {
+      if (person.task === 'backend' || person.task === 'frontend') person.task = 'code';
+    });
+  }
+  s.nextProjectId = Math.max(s.nextProjectId, ...s.completedProjects.map(project => project.id + 1), 1);
   // Старые сохранения сохраняют имеющиеся имена; недостающие получают новые уникальные имена.
   const people = [...s.employees, ...s.candidates];
   const usedNames = new Set(people.map(p => p.name.trim()).filter(n => n && n !== 'Без имени'));
   const originalPeople = [...(Array.isArray(r.employees) ? r.employees : []), ...(Array.isArray(r.candidates) ? r.candidates : [])];
-  let migratedState = !r.flavor || !r.crisis || !DIFFICULTIES[r.difficulty] || typeof r.rescueUsed !== 'boolean' || people.some(person => {
+  let migratedState = !r.flavor || !r.crisis || !DIFFICULTIES[r.difficulty] || typeof r.rescueUsed !== 'boolean'
+    || !Object.hasOwn(r, 'activeProject') || !Array.isArray(r.completedProjects)
+    || !Number.isFinite(r.projectsCompleted) || !Number.isFinite(r.nextProjectId) || people.some(person => {
     const original = originalPeople.find(p => p && p.id === person.id);
     return !original || original.gender !== person.gender
       || JSON.stringify(original.appearance) !== JSON.stringify(person.appearance)
@@ -564,7 +775,7 @@ const API = { user: null, csrf: null, rev: 0, dirty: false, busy: false, queued:
               hold: null,      // null | 'conflict' | 'corrupt' | 'noload' — автосохранение приостановлено
               legacy: false,   // найдено старое локальное сохранение
               leaving: false, saveTimer: null };
-const SAVE_ACTIONS = new Set(['hire', 'fire', 'expand', 'refresh', 'assign', 'rest', 'back', 'clear']);
+const SAVE_ACTIONS = new Set(['hire', 'fire', 'expand', 'refresh', 'assign', 'rest', 'back', 'clear', 'project-start']);
 const USER_RE = /^[A-Za-z0-9_]{3,20}$/;   // то же правило, что на сервере
 
 /** Запрос к API: JSON, cookie сессии, CSRF-токен, таймаут 10 с. Возвращает {status, data}. */
@@ -751,7 +962,7 @@ function fresh(difficulty = 'medium') {
   for (let i = 0; i < C.candidates; i++) S.candidates.push(genCandidate());
   seedReactionState();
   const goal = goalForDifficulty();
-  log(`Добро пожаловать! Сложность: ${difficultyConfig().name}. Наймите первых сотрудников. Цель: ${goal.customers} клиентов и репутация ${goal.reputation}.`);
+  log(`Добро пожаловать! Сложность: ${difficultyConfig().name}. Наймите команду и сдайте ${goal.projects} проекта(ов), чтобы достичь ${goal.customers} клиентов и репутации ${goal.reputation}.`);
 }
 
 /** Показывает выбор режима перед новой кампанией или после подтверждённого сброса. */
@@ -773,7 +984,7 @@ function renderDifficultySetup() {
     button.classList.toggle('selected', selected);
     button.setAttribute('aria-pressed', String(selected));
   });
-  $('difficultyDetails').textContent = `${cfg.description} Стартовый капитал: ${fmt(cfg.startingMoney)}. Скорость ×${cfg.employeeSpeed.toFixed(2)}, трудоёмкость ×${cfg.projectComplexity.toFixed(2)}, аренда ×${cfg.rentMultiplier.toFixed(2)}, оклады ×${cfg.salaryMultiplier.toFixed(2)}, доход ×${cfg.incomeMultiplier.toFixed(2)}, найм ×${cfg.hireFeeMultiplier.toFixed(2)}, форс-мажоры ×${cfg.forceMajeureFrequency}. Цель: ${cfg.goal.customers} клиентов и ${cfg.goal.reputation} репутации.`;
+  $('difficultyDetails').textContent = `${cfg.description} Стартовый капитал: ${fmt(cfg.startingMoney)}. Скорость ×${cfg.employeeSpeed.toFixed(2)}, трудоёмкость ×${cfg.projectComplexity.toFixed(2)}, аренда ×${cfg.rentMultiplier.toFixed(2)}, оклады ×${cfg.salaryMultiplier.toFixed(2)}, доход ×${cfg.incomeMultiplier.toFixed(2)}, найм ×${cfg.hireFeeMultiplier.toFixed(2)}, выплата проектов ×${cfg.projectRewardMultiplier.toFixed(2)}, форс-мажоры ×${cfg.forceMajeureFrequency}. Цель: ${cfg.goal.projects} проектов, ${cfg.goal.customers} клиентов и ${cfg.goal.reputation} репутации.`;
   $('difficultyTitle').textContent = difficultyResetMode ? 'Выбери сложность новой кампании' : 'Выбери сложность';
   document.querySelector('[data-act="start-difficulty"]').textContent = difficultyResetMode ? 'Начать новую кампанию' : 'Начать игру';
 }
@@ -881,6 +1092,15 @@ window.addEventListener('pagehide', flush);
 document.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)));
 $('formLogin').addEventListener('submit', ev => submitAuth('login', ev));
 $('formRegister').addEventListener('submit', ev => submitAuth('register', ev));
+$('projectType').addEventListener('change', updateProjectPreview);
+$('projectDeadline').addEventListener('change', updateProjectPreview);
+$('projectDialogCancel').addEventListener('click', closeProjectDialog);
+$('projectForm').addEventListener('submit', ev => {
+  ev.preventDefault();
+  const result = startProject($('projectType').value, $('projectName').value, $('projectDeadline').value);
+  if (!result.ok) { $('projectError').textContent = result.error; return; }
+  $('projectSubmit').disabled = false;
+});
 CrisisView = CrisisUI.create({ h, fmt, Crisis, EmployeeConfig });
 UI = CompactUI.create({
   h, btn, stat, tierDisplay, skillRows, portrait, fmt, C, STATUS, Speech,
@@ -889,6 +1109,7 @@ UI = CompactUI.create({
   difficultyConfig, taskWork, efficiency, warnings,
   hireCost, refreshCost: candidateRefreshCost, deskCost: deskUpgradeCost,
   crisisBlocks: () => CrisisView.summary(S), crisisStrip: () => CrisisView.stripText(S),
+  ProjectSystem, projectTick: gameTickIndex, projectTimeLabel: tickTimeLabel,
   select(id) {
     const person = S.employees.find(e => e.id === id);
     if (!person) return;

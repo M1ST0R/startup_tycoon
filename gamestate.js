@@ -2,11 +2,12 @@
 const { resolveIdentity } = require('./name-generator');
 const EmployeeConfig = require('./employee-config');
 const FinanceCrisis = require('./crisis');
+const ProjectSystem = require('./project-system');
 /* Серверная проверка сохранения: структура и допустимые диапазоны.
    Сервер не пересчитывает игру, он лишь не даёт сохранить мусор и слишком большие данные. */
 
 const ROLES = new Set(['dev', 'designer', 'marketer']);
-const TASKS = new Set(['code', 'ui', 'marketing']);
+const TASKS = new Set(['code', 'backend', 'frontend', 'ui', 'marketing']);
 const STATUSES = new Set(['work', 'rest', 'idle']);
 const LOG_TYPES = new Set(['good', 'warn', 'bad', 'info']);
 const DIFFICULTIES = new Set(['easy', 'medium', 'hardcore']);
@@ -63,6 +64,27 @@ function flavorState(value) {
 /** Возвращает «чистую» копию состояния или бросает ошибку, если данные некорректны. */
 function normalizeState(s) {
   if (!s || typeof s !== 'object' || Array.isArray(s) || s.v !== 1) fail();
+  const activeProject = ProjectSystem.normalize(s.activeProject);
+  if (s.activeProject && !activeProject) fail();
+  const completedProjects = Array.isArray(s.completedProjects)
+    ? s.completedProjects.slice(0, ProjectSystem.BALANCE.historyLimit).map(ProjectSystem.summary).filter(Boolean)
+    : [];
+  const employees = list(s.employees, 10).map(person);
+  if (activeProject) {
+    employees.forEach(employee => {
+      if (!activeProject.allowedWork.includes(employee.task)) employee.task = ProjectSystem.bestWorkFor(activeProject, employee);
+      if (employee.task && employee.status !== 'rest') employee.status = 'work';
+      if (!employee.task && employee.status === 'work') employee.status = 'idle';
+    });
+  } else {
+    employees.forEach(employee => {
+      if (employee.task === 'backend' || employee.task === 'frontend') employee.task = 'code';
+    });
+  }
+  const projectsCompleted = s.projectsCompleted === undefined
+    ? completedProjects.length : int(s.projectsCompleted, 0, 1e6);
+  const minNextProjectId = Math.max(1, activeProject ? activeProject.id + 1 : 1, ...completedProjects.map(project => project.id + 1));
+  const nextProjectId = s.nextProjectId === undefined ? minNextProjectId : int(s.nextProjectId, minNextProjectId, 1e9);
   return {
     v: 1,
     difficulty: DIFFICULTIES.has(s.difficulty) ? s.difficulty : 'medium',
@@ -74,7 +96,11 @@ function normalizeState(s) {
     selected: s.selected === null ? null : int(s.selected, 0, 1e9),
     // Старые сохранения не знают о страховке от финансового софтлока.
     rescueUsed: typeof s.rescueUsed === 'boolean' ? s.rescueUsed : false,
-    employees: list(s.employees, 10).map(person),
+    activeProject,
+    completedProjects,
+    projectsCompleted,
+    nextProjectId,
+    employees,
     candidates: list(s.candidates, 10).map(person),
     log: list(s.log, 40).map(l => {
       if (!l || typeof l !== 'object' || !LOG_TYPES.has(l.type)) fail();
@@ -83,7 +109,7 @@ function normalizeState(s) {
     // Кризис и поражение необязательны: старые сохранения получают значения по умолчанию.
     crisis: FinanceCrisis.normalizeState(s.crisis),
     gameOver: FinanceCrisis.normalizeGameOver(s.gameOver),
-    // Поле необязательно: состояние старых сохранений дополняется значениями по умолчанию.
+    // Поля необязательны: старые сохранения мигрируют без потери остального прогресса.
     flavor: flavorState(s.flavor)
   };
 }

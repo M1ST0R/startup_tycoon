@@ -30,14 +30,16 @@
     rescueThreshold: 250, rescueGrant: 5000,
     autosaveTicks: 10, logMax: 40,
     roles: Object.freeze({
-      dev: Object.freeze({ name: 'Разработчик', specs: Object.freeze(['Backend', 'Frontend', 'Mobile']), fit: Object.freeze({ code: 1.0, ui: 0.4, marketing: 0.2 }) }),
-      designer: Object.freeze({ name: 'Дизайнер', specs: Object.freeze(['UI', 'UX', 'Графика']), fit: Object.freeze({ code: 0.3, ui: 1.0, marketing: 0.4 }) }),
-      marketer: Object.freeze({ name: 'Маркетолог', specs: Object.freeze(['SMM', 'SEO', 'Контекст']), fit: Object.freeze({ code: 0.2, ui: 0.4, marketing: 1.0 }) })
+      dev: Object.freeze({ name: 'Разработчик', specs: Object.freeze(['Backend', 'Frontend', 'Mobile']), fit: Object.freeze({ code: 1.0, backend: 1.0, frontend: 0.95, ui: 0.4, marketing: 0.2 }) }),
+      designer: Object.freeze({ name: 'Дизайнер', specs: Object.freeze(['UI', 'UX', 'Графика']), fit: Object.freeze({ code: 0.3, backend: 0.25, frontend: 0.45, ui: 1.0, marketing: 0.4 }) }),
+      marketer: Object.freeze({ name: 'Маркетолог', specs: Object.freeze(['SMM', 'SEO', 'Контекст']), fit: Object.freeze({ code: 0.2, backend: 0.15, frontend: 0.2, ui: 0.4, marketing: 1.0 }) })
     }),
     tasks: Object.freeze({
-      code: Object.freeze({ id: 'code', name: 'Разработка продукта', work: 30, desc: 'Продукт +4…8% за задачу. Без продукта клиенты почти не платят.' }),
-      ui: Object.freeze({ id: 'ui', name: 'Улучшение интерфейса', work: 24, desc: 'Репутация +1…2 и немного продукта.' }),
-      marketing: Object.freeze({ id: 'marketing', name: 'Рекламная кампания', work: 25, desc: 'Новые клиенты. Чем лучше продукт и репутация, тем их больше.' })
+      code: Object.freeze({ id: 'code', name: 'Разработка продукта', work: 30, desc: 'Внутренняя разработка продукта.' }),
+      backend: Object.freeze({ id: 'backend', name: 'Backend', work: 30, desc: 'Серверная логика, API и данные проекта.' }),
+      frontend: Object.freeze({ id: 'frontend', name: 'Frontend', work: 30, desc: 'Клиентская часть и взаимодействия проекта.' }),
+      ui: Object.freeze({ id: 'ui', name: 'UI', work: 24, desc: 'Интерфейс и пользовательский опыт.' }),
+      marketing: Object.freeze({ id: 'marketing', name: 'Маркетинг', work: 25, desc: 'Продвижение и запуск проекта.' })
     })
   });
 
@@ -85,7 +87,8 @@
       name: 'Лёгкий', startingMoney: 8800, employeeSpeed: 1.15, projectComplexity: 0.82,
       forceMajeureFrequency: 0.5, salaryMultiplier: 0.88, rentMultiplier: 0.82,
       incomeMultiplier: 1.12, hireFeeMultiplier: 2.3, refreshCostMultiplier: 0.75,
-      deskCostMultiplier: 0.85, goal: Object.freeze({ customers: 80, reputation: 30 }),
+      deskCostMultiplier: 0.85, projectRewardMultiplier: 0.95,
+      goal: Object.freeze({ customers: 80, reputation: 30, projects: 2 }),
       crisis: Object.freeze({ quitChanceMultiplier: 0.7, investorTrustBonus: 0.10 }),
       description: 'Большой запас денег, дешёвая команда и быстрые проекты. Можно экспериментировать и исправлять ошибки.'
     }),
@@ -93,7 +96,8 @@
       name: 'Нормальная', startingMoney: 7000, employeeSpeed: 1, projectComplexity: 1,
       forceMajeureFrequency: 1, salaryMultiplier: 1, rentMultiplier: 1,
       incomeMultiplier: 1, hireFeeMultiplier: 3, refreshCostMultiplier: 1,
-      deskCostMultiplier: 1, goal: Object.freeze({ customers: 100, reputation: 40 }),
+      deskCostMultiplier: 1, projectRewardMultiplier: 1,
+      goal: Object.freeze({ customers: 100, reputation: 40, projects: 3 }),
       crisis: Object.freeze({ quitChanceMultiplier: 1, investorTrustBonus: 0 }),
       description: 'Нужно сначала развить продукт, затем масштабировать клиентов. Резерв позволяет пережить несколько ошибок.'
     }),
@@ -101,7 +105,8 @@
       name: 'Сложная', startingMoney: 6500, employeeSpeed: 0.88, projectComplexity: 1.22,
       forceMajeureFrequency: 1.65, salaryMultiplier: 1.10, rentMultiplier: 1.17,
       incomeMultiplier: 1.05, hireFeeMultiplier: 3.15, refreshCostMultiplier: 1.3,
-      deskCostMultiplier: 1.25, goal: Object.freeze({ customers: 150, reputation: 50 }),
+      deskCostMultiplier: 1.25, projectRewardMultiplier: 1.12,
+      goal: Object.freeze({ customers: 150, reputation: 50, projects: 4 }),
       crisis: Object.freeze({ quitChanceMultiplier: 1.35, investorTrustBonus: -0.05 }),
       description: 'Оклады и аренда выше, решения дороже, проекты медленнее, форс-мажоры чаще. Доход немного поддержан, чтобы цель оставалась проходимой.'
     })
@@ -116,16 +121,21 @@
 
   // Шансы появления суммарно составляют 100%. Можно менять баланс здесь.
   const TIERS = Object.freeze([
-    Object.freeze({ id: 1, salary: Object.freeze({ min: 70, max: 109 }), skillCount: Object.freeze({ min: 1, max: 2 }), skillLevel: Object.freeze({ min: 1, max: 4 }), chance: 42 }),
-    Object.freeze({ id: 2, salary: Object.freeze({ min: 110, max: 159 }), skillCount: Object.freeze({ min: 1, max: 3 }), skillLevel: Object.freeze({ min: 2, max: 6 }), chance: 28 }),
-    Object.freeze({ id: 3, salary: Object.freeze({ min: 160, max: 229 }), skillCount: Object.freeze({ min: 2, max: 3 }), skillLevel: Object.freeze({ min: 3, max: 7 }), chance: 17 }),
-    Object.freeze({ id: 4, salary: Object.freeze({ min: 230, max: 329 }), skillCount: Object.freeze({ min: 2, max: 4 }), skillLevel: Object.freeze({ min: 4, max: 9 }), chance: 9 }),
-    Object.freeze({ id: 5, salary: Object.freeze({ min: 330, max: 480 }), skillCount: Object.freeze({ min: 3, max: 4 }), skillLevel: Object.freeze({ min: 5, max: 10 }), chance: 4 })
+    Object.freeze({ id: 1, salary: Object.freeze({ min: 70, max: 109 }), skillCount: Object.freeze({ min: 1, max: 2 }), skillLevel: Object.freeze({ min: 1, max: 4 }), workSpeedMultiplier: 1.00, chance: 42 }),
+    Object.freeze({ id: 2, salary: Object.freeze({ min: 110, max: 159 }), skillCount: Object.freeze({ min: 1, max: 3 }), skillLevel: Object.freeze({ min: 2, max: 6 }), workSpeedMultiplier: 1.05, chance: 28 }),
+    Object.freeze({ id: 3, salary: Object.freeze({ min: 160, max: 229 }), skillCount: Object.freeze({ min: 2, max: 3 }), skillLevel: Object.freeze({ min: 3, max: 7 }), workSpeedMultiplier: 1.10, chance: 17 }),
+    Object.freeze({ id: 4, salary: Object.freeze({ min: 230, max: 329 }), skillCount: Object.freeze({ min: 2, max: 4 }), skillLevel: Object.freeze({ min: 4, max: 9 }), workSpeedMultiplier: 1.15, chance: 9 }),
+    Object.freeze({ id: 5, salary: Object.freeze({ min: 330, max: 480 }), skillCount: Object.freeze({ min: 3, max: 4 }), skillLevel: Object.freeze({ min: 5, max: 10 }), workSpeedMultiplier: 1.20, chance: 4 })
   ]);
+
+  // Тир даёт небольшой прямой бонус скорости сверх отличий в наборе навыков.
+  // Множители не делают дорогих сотрудников обязательными: тир 1 остаётся базовым ×1,00.
 
   // Какие специализации повышают эффективность существующих задач.
   const TASK_SKILLS = Object.freeze({
     code: Object.freeze(['backend', 'frontend']),
+    backend: Object.freeze(['backend']),
+    frontend: Object.freeze(['frontend']),
     ui: Object.freeze(['ui']),
     marketing: Object.freeze(['marketing'])
   });
@@ -147,6 +157,61 @@
     SMM: Object.freeze(['marketing']),
     SEO: Object.freeze(['marketing']),
     'Контекст': Object.freeze(['marketing'])
+  });
+
+
+  // Настройки проектного цикла. Точные условия активного проекта копируются в сохранение при старте,
+  // поэтому изменение баланса не меняет задним числом уже принятый заказ.
+  const PROJECT_BALANCE = Object.freeze({
+    nameMinLength: 3,
+    nameMaxLength: 48,
+    maxProjectWork: 1000000,
+    maxPayout: 250000,
+    qualityBase: 35,              // минимальное качество: даже слабая команда может сдать рабочий результат
+    qualitySkillWeight: 65,       // оставшиеся 65 пунктов зависят от навыков, реально применённых в работе
+    qualityRewardMin: 0.70,
+    qualityRewardRange: 0.50,     // множитель награды: 0.70..1.20 до округления качества
+    outcomeQualityBase: 0.75,     // низкое качество не обнуляет результат проекта полностью
+    outcomeQualityBonus: 0.25,
+    lateReputationPenalty: 4,
+    historyLimit: 12,
+    deadlines: Object.freeze([
+      Object.freeze({ id: 'rush', name: 'Сжатый срок', days: 7, effortMultiplier: 1.20, onTimeRewardMultiplier: 1.25, lateRewardMultiplier: 0.55 }),
+      Object.freeze({ id: 'standard', name: 'Стандартный срок', days: 11, effortMultiplier: 1.00, onTimeRewardMultiplier: 1.00, lateRewardMultiplier: 0.72 }),
+      Object.freeze({ id: 'relaxed', name: 'Свободный срок', days: 16, effortMultiplier: 0.90, onTimeRewardMultiplier: 0.88, lateRewardMultiplier: 0.90 })
+    ]),
+    workTypes: Object.freeze({
+      backend: Object.freeze({ label: 'Backend', icon: '🗄️' }),
+      frontend: Object.freeze({ label: 'Frontend', icon: '🖥️' }),
+      ui: Object.freeze({ label: 'UI', icon: '🎨' }),
+      marketing: Object.freeze({ label: 'Маркетинг', icon: '📣' })
+    }),
+    templates: Object.freeze({
+      website: Object.freeze({
+        id: 'website', name: 'Веб-сайт', icon: '🌐', description: 'Сайт компании или сервиса: важны клиентская часть и удобство интерфейса.',
+        baseWork: 420, baseReward: 2600,
+        workWeights: Object.freeze({ backend: 0.20, frontend: 0.30, ui: 0.35, marketing: 0.15 }),
+        outcomes: Object.freeze({ product: 14, reputation: 5, customers: 10 })
+      }),
+      webService: Object.freeze({
+        id: 'webService', name: 'Веб-сервис', icon: '⚙️', description: 'Сложная серверная логика, API и пользовательский кабинет.',
+        baseWork: 520, baseReward: 3400,
+        workWeights: Object.freeze({ backend: 0.45, frontend: 0.30, ui: 0.15, marketing: 0.10 }),
+        outcomes: Object.freeze({ product: 20, reputation: 4, customers: 12 })
+      }),
+      mobileApp: Object.freeze({
+        id: 'mobileApp', name: 'Мобильное приложение', icon: '📱', description: 'Приложение с большим объёмом интерфейсов и клиентской логики.',
+        baseWork: 500, baseReward: 3300,
+        workWeights: Object.freeze({ backend: 0.25, frontend: 0.35, ui: 0.25, marketing: 0.15 }),
+        outcomes: Object.freeze({ product: 17, reputation: 6, customers: 14 })
+      }),
+      indieGame: Object.freeze({
+        id: 'indieGame', name: 'Инди-игра', icon: '🎮', description: 'Больше работы над клиентской частью, UX и продвижением.',
+        baseWork: 640, baseReward: 4100,
+        workWeights: Object.freeze({ backend: 0.25, frontend: 0.25, ui: 0.30, marketing: 0.20 }),
+        outcomes: Object.freeze({ product: 20, reputation: 8, customers: 18 })
+      })
+    })
   });
 
   const orderedSkillKeys = Object.keys(SKILLS);
@@ -338,7 +403,7 @@
   }
 
   return Object.freeze({
-    BASE, CRISIS, DIFFICULTIES, SKILLS, TIERS, TASK_SKILLS, ROLE_WEIGHTS, SPEC_SKILLS,
+    BASE, CRISIS, DIFFICULTIES, SKILLS, TIERS, TASK_SKILLS, ROLE_WEIGHTS, SPEC_SKILLS, PROJECT_BALANCE,
     tierConfig, crisisSettings, safeTier, tierForSalary, salaryForTier, rentForDesks, incomePerTick, hireCost, actionCost,
     pickTier, generateSkills,
     normalizeEmployeeTraits, taskSkillKey, taskSkillLevel, improveTaskSkill

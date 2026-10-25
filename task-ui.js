@@ -5,9 +5,11 @@
 
   /** Красивые названия задач для игрока (id задач — в employee-config.js). */
   const LABELS = Object.freeze({
-    code: Object.freeze({ title: '⚙️ Бэкенд', hint: 'Разработка продукта' }),
-    ui: Object.freeze({ title: '🎨 Фронтенд', hint: 'Улучшение интерфейса' }),
-    marketing: Object.freeze({ title: '📣 Реклама', hint: 'Привлечение клиентов' })
+    code: Object.freeze({ title: '💻 Разработка продукта', hint: 'Внутренняя разработка' }),
+    backend: Object.freeze({ title: '🗄️ Backend', hint: 'Серверная логика и API' }),
+    frontend: Object.freeze({ title: '🖥️ Frontend', hint: 'Клиентская часть' }),
+    ui: Object.freeze({ title: '🎨 UI', hint: 'Интерфейс и UX' }),
+    marketing: Object.freeze({ title: '📣 Маркетинг', hint: 'Привлечение клиентов' })
   });
   const ROOM_SIZE = 4;
 
@@ -42,14 +44,21 @@
     }
 
     /** Три кнопки выбора задачи для сотрудника. */
-    function choices(person, efficiencyOf) {
-      return Object.values(C.tasks).map(task => h('button', {
-        class: `task-choice${person.task === task.id ? ' current' : ''}`, type: 'button',
-        'data-act': 'assign', 'data-task': task.id, 'data-key': `task-choice-${task.id}`
-      }, h('span', { class: 'task-choice-main' },
-        h('b', { class: 'task-choice-name' }, titleOf(task.id)),
-        h('span', { class: 'task-choice-hint' },
-          `${LABELS[task.id] ? LABELS[task.id].hint : task.name} · эффективность ${Math.round(efficiencyOf(person, task.id))}%`))));
+    function choices(person, efficiencyOf, activeProject = null) {
+      const ids = activeProject ? activeProject.allowedWork : (root.ProjectSystem ? root.ProjectSystem.LEGACY_TASKS : ['code', 'ui', 'marketing']);
+      return ids.map(id => C.tasks[id]).filter(Boolean).map(task => {
+        const projectProgress = activeProject && root.ProjectSystem
+          ? Math.floor(root.ProjectSystem.streamProgress(activeProject, task.id)) : null;
+        const detail = activeProject
+          ? `${LABELS[task.id] ? LABELS[task.id].hint : task.name} · этап ${projectProgress}% · эффективность ${Math.round(efficiencyOf(person, task.id))}%`
+          : `${LABELS[task.id] ? LABELS[task.id].hint : task.name} · эффективность ${Math.round(efficiencyOf(person, task.id))}%`;
+        return h('button', {
+          class: `task-choice${person.task === task.id ? ' current' : ''}`, type: 'button',
+          'data-act': 'assign', 'data-task': task.id, 'data-key': `task-choice-${task.id}`
+        }, h('span', { class: 'task-choice-main' },
+          h('b', { class: 'task-choice-name' }, titleOf(task.id)),
+          h('span', { class: 'task-choice-hint' }, detail)));
+      });
     }
 
     return Object.freeze({ overview, choices });

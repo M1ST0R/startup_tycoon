@@ -2,7 +2,7 @@
 (function (root) {
   'use strict';
   const $ = id => document.getElementById(id);
-  const titles = { emp: 'Команда', tasks: 'Задачи', assign: 'Назначить задачу', hire: 'Найм', log: 'Журнал', menu: 'Меню' };
+  const titles = { emp: 'Команда', tasks: 'Задачи', projects: 'Проекты', assign: 'Назначить задачу', hire: 'Найм', log: 'Журнал', menu: 'Меню' };
 
   // Reconcile nodes instead of replacing live controls on every simulation tick.
   function key(node) {
@@ -42,7 +42,7 @@
     const control = (label, name, value, props = {}) => h('button', { class: 'btn sec', type: 'button', 'data-ui': name, 'data-value': value, ...props }, label);
     const text = (value, cls = '') => h('p', { class: cls }, value);
     const row = (label, value) => h('div', { class: 'info-row' }, h('span', { class: 'mute' }, label), h('b', {}, value));
-    const modalOpen = () => !$('difficultySetup').hidden || !$('decisionModal').hidden || !$('gameOverScreen').hidden;
+    const modalOpen = () => !$('difficultySetup').hidden || !$('decisionModal').hidden || !$('gameOverScreen').hidden || !$('projectDialog').hidden;
     const tab = (value, label) => control(label, 'tab', value, { class: 'panel-tab', 'aria-pressed': String(tabs[section] === value) });
     const pagingButtons = (name, count, index) => [
       control('‹', name, -1, { class: 'btn sec icon-btn', 'aria-label': 'Предыдущий', disabled: index <= 0 }),
@@ -82,8 +82,10 @@
         row('Статус', d.STATUS[person.status]),
         stat('Энергия', `${Math.round(person.energy)}%`, person.energy, 100, 'en'),
         stat('Настроение', `${Math.round(person.mood)}%`, person.mood, 100, 'mood'),
-        text(task ? task.name : 'Задача не назначена', 'mute'),
-        ...(task ? [stat('Прогресс', `${Math.floor(person.progress / d.taskWork(task) * 100)}%`, person.progress, d.taskWork(task), 'pr')] : []),
+        text(task ? `${task.name}${state().activeProject ? ` · проект «${state().activeProject.name}»` : ''}` : 'Задача не назначена', 'mute'),
+        ...(task && state().activeProject && state().activeProject.allowedWork.includes(task.id)
+          ? [stat('Прогресс этапа', `${Math.floor(d.ProjectSystem.streamProgress(state().activeProject, task.id))}%`, d.ProjectSystem.streamProgress(state().activeProject, task.id), 100, 'pr')]
+          : task ? [stat('Прогресс', `${Math.floor(person.progress / d.taskWork(task) * 100)}%`, person.progress, d.taskWork(task), 'pr')] : []),
         ...d.warnings(person).map(w => text(w, 'warnline')),
         text(`${C.roles[person.role].name} · ${person.spec}`, 'mute'),
         ...skillRows(person),
@@ -103,15 +105,70 @@
         content = employeeContent(person);
         actions = [control('Назначить задачу', 'open', 'assign'), action(person.status === 'rest' ? 'К работе' : 'Отдых', person.status === 'rest' ? 'back' : 'rest', { 'data-key': 'employee-rest' })];
       } else if (section === 'tasks') {
-        content = taskUI.overview(s.employees);
+        content = [
+          ...(s.activeProject ? [text(`Активный проект: «${s.activeProject.name}». Выполняйте этапы проекта, чтобы получить оплату.`, 'mute')] : [text('Без активного проекта задачи развивают продукт и клиентскую базу. Для крупной выплаты создайте проект в разделе «Проекты».', 'mute')]),
+          ...taskUI.overview(s.employees)
+        ];
         actions = s.employees.length ? [] : [control('Нанять сотрудника', 'open', 'hire')];
+      } else if (section === 'projects') {
+        const project = s.activeProject;
+        context += project ? `:active:${project.id}` : `:available:${s.projectsCompleted}`;
+        if (project) {
+          const template = d.ProjectSystem.templateOf(project.templateId);
+          const tick = d.projectTick();
+          const remaining = project.deadlineTick - tick;
+          const late = remaining < 0;
+          const deadlineText = late
+            ? `Просрочен на ${Math.ceil(Math.abs(remaining) / 24)} дн. · дедлайн был ${d.projectTimeLabel(project.deadlineTick)}`
+            : `Осталось ${Math.ceil(remaining / 24)} дн. · дедлайн ${d.projectTimeLabel(project.deadlineTick)}`;
+          const quality = d.ProjectSystem.quality(project);
+          const payoutOnTime = d.ProjectSystem.rewardBreakdown(project, quality, false).payout;
+          const payoutLate = d.ProjectSystem.rewardBreakdown(project, quality, true).payout;
+          content = [
+            h('div', { class: 'project-panel-heading', 'data-key': `project-head-${project.id}` },
+              h('span', { class: 'project-type-icon', 'aria-hidden': 'true' }, template.icon),
+              h('div', {}, h('h3', {}, project.name), h('p', { class: 'mute' }, template.name))),
+            text(template.description, 'mute'),
+            row('Статус дедлайна', deadlineText),
+            row('Готовность', `${Math.floor(d.ProjectSystem.progress(project))}% · ${Object.values(project.workDone).reduce((a, b) => a + b, 0)} / ${project.totalWork} ед.`),
+            stat('Прогресс проекта', d.ProjectSystem.progress(project).toFixed(1) + '%', d.ProjectSystem.progress(project), 100, 'pr'),
+            h('h3', { class: 'project-subtitle' }, 'Этапы работ'),
+            ...project.allowedWork.map(workId => h('div', { class: 'project-stream', 'data-key': `project-stream-${workId}` },
+              h('div', { class: 'project-stream-head' },
+                h('b', {}, `${d.ProjectSystem.BALANCE.workTypes[workId].icon} ${d.ProjectSystem.BALANCE.workTypes[workId].label}`),
+                h('span', {}, `${Math.floor(d.ProjectSystem.streamProgress(project, workId))}% · ${Math.floor(project.workDone[workId])}/${project.streamTargets[workId]}`)),
+              h('div', { class: 'bar pr' }, h('i', { style: `width:${d.ProjectSystem.streamProgress(project, workId).toFixed(1)}%` })))),
+            row('Оценка качества', `${quality}/100 · меняется по ходу работы команды`),
+            row('Выплата при сдаче в срок', fmt(payoutOnTime)),
+            row('Выплата при просрочке', fmt(payoutLate)),
+            text(`Сдано проектов: ${s.projectsCompleted} / ${d.difficultyConfig().goal.projects}. Деньги за проект начисляются один раз после закрытия всех этапов.`, 'mute'),
+            h('h3', { class: 'project-subtitle' }, 'Команда проекта'),
+            ...taskUI.overview(s.employees)
+          ];
+          actions = [control('Распределить работу', 'open', 'assign')];
+        } else {
+          const goal = d.difficultyConfig().goal;
+          content = [
+            h('div', { class: 'project-empty' }, h('span', { class: 'project-type-icon' }, '🚀'),
+              h('h3', {}, 'Нет активного проекта'),
+              text(s.employees.length ? 'Выберите тип контракта, придумайте название и срок. Команда получит задачи по этапам.' : 'Сначала наймите хотя бы одного сотрудника, затем запускайте проект.')),
+            row('Цель кампании', `${s.projectsCompleted}/${goal.projects} проектов · ${goal.customers} клиентов · репутация ${goal.reputation}`),
+            ...(s.completedProjects.length ? [h('h3', { class: 'project-subtitle' }, 'Последние завершённые проекты'), ...s.completedProjects.map(item => {
+              const tpl = d.ProjectSystem.templateOf(item.templateId);
+              return h('div', { class: `project-history-item${item.late ? ' late' : ''}`, 'data-key': `project-history-${item.id}` },
+                h('div', {}, h('b', {}, `${tpl.icon} ${item.name}`), h('span', { class: 'mute' }, `${tpl.name} · качество ${item.quality}/100 · ${item.late ? 'с опозданием' : 'в срок'}`)),
+                h('b', { class: 'project-history-payout' }, fmt(item.payout)));
+            })] : [text('После первой сдачи здесь появится история результатов и выплат.', 'mute')])
+          ];
+          actions = [action('＋ Создать проект', 'project-new', { class: 'btn', disabled: s.employees.length === 0 })];
+        }
       } else if (section === 'assign') {
         if (!person) return { content: [text('Сначала наймите сотрудника.')], actions: [control('Найти сотрудника', 'open', 'hire')], context };
         context += `:${person.id}`;
         tools = [control('‹ Назад', 'open', 'emp', { class: 'btn sec' })];
         const task = C.tasks[person.task];
         content = [personHeader(person), text(task ? `Сейчас: ${TaskUI.titleOf(task.id)}` : 'Задача не назначена', 'mute'),
-          ...taskUI.choices(person, (p, id) => d.efficiency(p, id) / C.baseSpeed * 100)];
+          ...taskUI.choices(person, (p, id) => d.efficiency(p, id) / C.baseSpeed * 100, s.activeProject)];
       } else if (section === 'hire') {
         const c = hireDetail ? s.candidates.find(person => person.id === candidateId) : null;
         if (!c) hireDetail = false;
@@ -155,7 +212,7 @@
           const diff = d.difficultyConfig(), goal = diff.goal;
           content = [...d.crisisBlocks(), row('Баланс', fmt(s.money)), row('Доход / день', fmt(d.incomeTick() * 24)), row('Расходы / день', fmt(d.salaries() + d.rentCost())),
             row('Зарплаты / день', fmt(d.salaries())), row('Аренда / день', fmt(d.rentCost())), row('Сложность', diff.name),
-            row('Клиенты', `${s.customers} / ${goal.customers}`), row('Репутация', `${Math.floor(s.rep)} / ${goal.reputation}`),
+            row('Проекты', `${s.projectsCompleted} / ${goal.projects}`), row('Клиенты', `${s.customers} / ${goal.customers}`), row('Репутация', `${Math.floor(s.rep)} / ${goal.reputation}`),
             text(s.won ? 'Цель достигнута!' : 'Развивайте компанию, чтобы достичь цели.', s.won ? 'good' : 'mute'),
             text(`Работа ×${diff.employeeSpeed.toFixed(2)} · проекты ×${diff.projectComplexity.toFixed(2)} · события ×${diff.forceMajeureFrequency}`, 'mute'),
             text(`Оклады ×${diff.salaryMultiplier.toFixed(2)} · аренда ×${diff.rentMultiplier.toFixed(2)} · доход ×${diff.incomeMultiplier.toFixed(2)} · найм ×${diff.hireFeeMultiplier.toFixed(2)}`, 'mute')];
@@ -290,7 +347,22 @@
       strip.hidden = !crisisText; strip.textContent = crisisText ? `⚠ ${crisisText}` : '';
       $('sCust').textContent = s.customers >= 10000 ? compact(s.customers) : s.customers;
       $('sCust').parentElement.title = `Клиенты: ${s.customers.toLocaleString('ru-RU')}`;
-      $('sRep').textContent = Math.floor(s.rep); $('sProd').textContent = `${Math.floor(s.product)}%`;
+      $('sRep').textContent = Math.floor(s.rep);
+      const productProgress = d.ProjectSystem.creationProgress(s);
+      const productProgressInt = Math.floor(productProgress);
+      const productStat = $('sProd').closest('.stat');
+      $('sProd').textContent = `${productProgressInt}%`;
+      const productFill = $('sProdProgress');
+      if (productFill) productFill.style.width = `${productProgress}%`;
+      const productTrack = productStat.querySelector('[role="progressbar"]');
+      if (productTrack) productTrack.setAttribute('aria-valuenow', String(productProgressInt));
+      const productDescription = s.activeProject
+        ? `Создание продукта «${s.activeProject.name}»: выполнено ${productProgressInt}%`
+        : productProgressInt >= 100
+          ? 'Последний продукт готов на 100%. Начните следующий проект, чтобы отслеживать его создание.'
+          : `Продукт готов на ${productProgressInt}%. Запустите проект, чтобы видеть его разработку в реальном времени.`;
+      productStat.title = productDescription;
+      productStat.setAttribute('aria-label', productDescription);
       $('sTime').textContent = d.timeStr();
       $('bPause').textContent = d.paused() ? '▶' : 'Ⅱ';
       $('bPause').setAttribute('aria-label', d.paused() ? 'Продолжить игру' : 'Приостановить игру');

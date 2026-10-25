@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Стартап-тайкун</title>
-<link rel="stylesheet" href="style.css?v=merge-2">
+<link rel="stylesheet" href="style.css?v=product-progress-1">
 </head>
 <body>
 <div id="authView" hidden>
@@ -73,7 +73,7 @@
     <button class="stat" type="button" data-ui="company"><span class="lbl">Деньги</span><span class="stat-line"><b id="sMoney">$0</b><span id="sMoneyDelta" class="delta flat"></span></span></button>
     <button class="stat" type="button" data-ui="company"><span class="lbl">Клиенты</span><b id="sCust">0</b></button>
     <button class="stat" type="button" data-ui="company"><span class="lbl">Репутация</span><b id="sRep">0</b></button>
-    <button class="stat" type="button" data-ui="company"><span class="lbl">Продукт</span><b id="sProd">0%</b></button>
+    <button class="stat product-stat" type="button" data-ui="company" aria-label="Создание продукта: 0%"><span class="lbl">Продукт</span><b id="sProd">0%</b><span class="stat-progress-track" role="progressbar" aria-label="Создание продукта" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="sProdProgress" class="stat-progress-fill"></span></span></button>
   </div>
   <div class="time-controls">
     <span id="sTime" class="time-readout">День 1, 09:00</span>
@@ -86,6 +86,7 @@
 <nav id="gameNav" class="game-nav" aria-label="Разделы игры">
   <button type="button" class="nav-button" data-ui="panel" data-value="emp" aria-controls="panelShell" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3 20v-2a6 6 0 0 1 12 0v2M16 5a3 3 0 0 1 0 6m2 3a5 5 0 0 1 3 4v2"/></svg><span>Команда</span></button>
   <button type="button" class="nav-button" data-ui="panel" data-value="tasks" aria-controls="panelShell" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V2h6v2M9 10h6M9 14h6M9 18h3"/></svg><span>Задачи</span></button>
+  <button type="button" class="nav-button" data-ui="panel" data-value="projects" aria-controls="panelShell" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4zM8 9h8M8 13h5M8 17h3"/><path d="m15 15 2 2 4-5"/></svg><span>Проекты</span></button>
   <button type="button" class="nav-button" data-ui="panel" data-value="hire" aria-controls="panelShell" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="7" r="3"/><path d="M3 20v-2a6 6 0 0 1 12 0v2M19 8v8M15 12h8"/></svg><span>Найм</span></button>
   <button type="button" class="nav-button" data-ui="panel" data-value="log" aria-controls="panelShell" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h14v18H5zM9 7h6M9 11h6M9 15h6"/></svg><span>Журнал</span><i class="nav-dot" hidden></i></button>
   <button type="button" class="nav-button" data-ui="panel" data-value="menu" aria-controls="panelShell" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg><span>Меню</span></button>
@@ -116,6 +117,32 @@
 </main>
 </div>
 
+
+<div id="projectDialog" class="dlg-backdrop" hidden role="dialog" aria-modal="true" aria-labelledby="projectDialogTitle">
+  <form id="projectForm" class="dlg-modal project-modal" novalidate>
+    <div class="project-modal-scroll">
+      <div class="dlg-kicker"><span aria-hidden="true">🚀</span><span>НОВЫЙ КОНТРАКТ</span></div>
+      <h2 id="projectDialogTitle">Начать проект</h2>
+      <p class="project-form-intro">Команда получит задачи по этапам проекта. Деньги начисляются только после завершения всех этапов.</p>
+      <label for="projectType">Тип проекта
+        <select id="projectType" name="type" required></select>
+      </label>
+      <label for="projectName">Название проекта
+        <input id="projectName" name="name" type="text" minlength="3" maxlength="48" autocomplete="off" spellcheck="false" placeholder="Например, Atlas Workspace" required>
+      </label>
+      <label for="projectDeadline">Дедлайн
+        <select id="projectDeadline" name="deadline" required></select>
+      </label>
+      <p id="projectPreview" class="project-preview" aria-live="polite"></p>
+      <p id="projectError" class="project-error" role="alert"></p>
+    </div>
+    <div class="difficulty-actions project-modal-actions">
+      <button class="btn sec" type="button" id="projectDialogCancel">Отмена</button>
+      <button class="btn" type="submit" id="projectSubmit">Начать проект</button>
+    </div>
+  </form>
+</div>
+
 <div id="decisionModal" class="dlg-backdrop" hidden role="dialog" aria-modal="true" aria-labelledby="dlgTitle">
   <section class="dlg-modal">
     <div class="dlg-kicker"><span id="dlgIcon">⚠️</span> <span id="dlgType">Решение</span></div>
@@ -123,7 +150,8 @@
     <div id="dlgChoices" class="dlg-choices"></div>
   </section>
 </div>
-<script src="employee-config.js?v=merge-2"></script>
+<script src="employee-config.js?v=projects-2"></script>
+<script src="project-system.js?v=product-progress-1"></script>
 <script src="decision-dialog.js?v=merge-2"></script>
 <script src="force-majeure.js?v=merge-2"></script>
 <script src="crisis.js?v=merge-2"></script>
@@ -135,8 +163,8 @@
 <script src="crisis-ui.js?v=merge-2"></script>
 <script src="overlay-ui.js?v=merge-2"></script>
 <script src="daily-balance.js?v=merge-2"></script>
-<script src="task-ui.js?v=merge-2"></script>
-<script src="compact-ui.js?v=merge-2"></script>
-<script src="script.js?v=merge-2"></script>
+<script src="task-ui.js?v=projects-2"></script>
+<script src="compact-ui.js?v=product-progress-1"></script>
+<script src="script.js?v=projects-2"></script>
 </body>
 </html>
