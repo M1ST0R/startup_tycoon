@@ -30,7 +30,7 @@
   function create(d) {
     const { h, btn, stat, tierDisplay, skillRows, portrait, fmt, C } = d;
     let section = null, candidateId = null, taskId = 'code', hireDetail = false;
-    let tabs = { emp: 'state', menu: 'game' };
+    let tabs = { menu: 'game' };
     let pages = new Map(), logSnapshot = null, pageCount = 1, lastFocus = null;
     let frame = 0, lastMeasureKey = '', measuredPages = [], currentContext = '';
     const meter = h('div', { class: 'panel-content ui-measure', 'aria-hidden': 'true' });
@@ -66,12 +66,30 @@
     }
     function reset() {
       section = null; candidateId = null; taskId = 'code'; hireDetail = false; pages.clear(); logSnapshot = null;
-      tabs = { emp: 'state', menu: 'game' }; lastMeasureKey = '';
+      tabs = { menu: 'game' }; lastMeasureKey = '';
       if ($('panelShell')) { $('panelShell').hidden = true; $('gameView').classList.remove('panel-open'); }
     }
     function personHeader(person) {
       return h('div', { class: 'person-head', 'data-key': `person-${person.id}` },
         portrait(person, 'avatar--card'), h('div', {}, h('h3', {}, person.name), tierDisplay(person)));
+    }
+
+    /** Карточка сотрудника: состояние, навыки, условия найма и управление (бывшие вкладки «Сотрудник» и «Управление»). */
+    function employeeContent(person) {
+      const task = C.tasks[person.task];
+      return [personHeader(person),
+        row('Статус', d.STATUS[person.status]),
+        stat('Энергия', `${Math.round(person.energy)}%`, person.energy, 100, 'en'),
+        stat('Настроение', `${Math.round(person.mood)}%`, person.mood, 100, 'mood'),
+        text(task ? task.name : 'Задача не назначена', 'mute'),
+        ...(task ? [stat('Прогресс', `${Math.floor(person.progress / d.taskWork(task) * 100)}%`, person.progress, d.taskWork(task), 'pr')] : []),
+        ...d.warnings(person).map(w => text(w, 'warnline')),
+        text(`${C.roles[person.role].name} · ${person.spec}`, 'mute'),
+        ...skillRows(person),
+        row('Зарплата / день', fmt(person.salary)),
+        row('Скорость', `×${person.speed.toFixed(2)}`),
+        ...(task ? [action('Снять с задачи', 'clear')] : []),
+        action('Уволить', 'fire', { class: 'btn danger' })];
     }
 
     function panelData() {
@@ -80,20 +98,8 @@
       if (section === 'emp') {
         if (!person) return { content: [text('Команда пока пуста. Наймите первого сотрудника.')], actions: [control('Найти сотрудника', 'open', 'hire')], context };
         tools = pagingButtons('employee', s.employees.length, s.employees.indexOf(person));
-        tabNodes = [tab('state', 'Сотрудник'), tab('manage', 'Управление')];
-        context += `:${person.id}:${tabs.emp}`;
-        const task = C.tasks[person.task];
-        if (tabs.emp === 'state') content = [personHeader(person),
-          row('Статус', d.STATUS[person.status]),
-          stat('Энергия', `${Math.round(person.energy)}%`, person.energy, 100, 'en'),
-          stat('Настроение', `${Math.round(person.mood)}%`, person.mood, 100, 'mood'),
-          text(task ? task.name : 'Задача не назначена', 'mute'),
-          ...(task ? [stat('Прогресс', `${Math.floor(person.progress / d.taskWork(task) * 100)}%`, person.progress, d.taskWork(task), 'pr')] : []),
-          ...d.warnings(person).map(w => text(w, 'warnline')),
-          text(`${C.roles[person.role].name} · ${person.spec}`, 'mute'),
-          ...skillRows(person)];
-        else content = [text(person.name, 'person-name'), row('Зарплата / день', fmt(person.salary)), row('Скорость', `×${person.speed.toFixed(2)}`),
-          ...(task ? [action('Снять с задачи', 'clear')] : []), action('Уволить', 'fire', { class: 'btn danger' })];
+        context += `:${person.id}`;
+        content = employeeContent(person);
         actions = [control('Задача', 'open', 'tasks'), action(person.status === 'rest' ? 'К работе' : 'Отдых', person.status === 'rest' ? 'back' : 'rest', { 'data-key': 'employee-rest' })];
       } else if (section === 'tasks') {
         const task = C.tasks[taskId] || C.tasks.code;
@@ -279,7 +285,9 @@
       const compact = value => Math.floor(value).toLocaleString('ru-RU', { notation: 'compact', maximumFractionDigits: 1 });
       $('sMoney').textContent = Math.abs(s.money) >= 100000 ? '$' + compact(s.money) : fmt(s.money);
       $('sMoney').classList.toggle('neg', s.money < 0);
-      $('sMoney').parentElement.title = s.money < 0 ? `Долг компании: ${fmt(-s.money)}` : `Баланс: ${fmt(s.money)}`;
+      $('sMoney').closest('.stat').title = s.money < 0 ? `Долг компании: ${fmt(-s.money)}` : `Баланс: ${fmt(s.money)}`;
+      DailyBalance.render($('sMoneyDelta'), d.incomeTick() * 24, d.salaries() + d.rentCost(),
+        value => Math.abs(value) >= 100000 ? (value < 0 ? '−' : '') + '$' + compact(Math.abs(value)) : fmt(value));
       const strip = $('crisisStrip'), crisisText = d.crisisStrip();
       strip.hidden = !crisisText; strip.textContent = crisisText ? `⚠ ${crisisText}` : '';
       $('sCust').textContent = s.customers >= 10000 ? compact(s.customers) : s.customers;
