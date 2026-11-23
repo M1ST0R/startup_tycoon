@@ -14,7 +14,8 @@
   const TYPE = {
     investor: { icon: '💼', label: 'Инвестор', color: '#ffcf4a' },
     employees: { icon: '👥', label: 'Команда', color: '#6db7ff' },
-    office: { icon: '🏢', label: 'Офис', color: '#ff7a6b' }
+    office: { icon: '🏢', label: 'Офис', color: '#ff7a6b' },
+    product: { icon: '📈', label: 'Продукт и рынок', color: '#70d7b4' }
   };
   let config = [], lastTick = -100, tickNo = 0;
   let deps = null, sessionState = null, generation = 0;
@@ -58,6 +59,12 @@
     s.money += effects.money || 0;
     s.rep = Math.max(0, Math.min(100, s.rep + (effects.rep || 0)));
     s.product = Math.max(0, Math.min(100, s.product + (effects.product || 0)));
+    if (effects.customers) {
+      const maxCustomers = Number(root.EmployeeConfig?.BASE?.maxCustomers);
+      const limit = Number.isFinite(maxCustomers) ? maxCustomers : 1e9;
+      const current = Number.isFinite(s.customers) ? s.customers : 0;
+      s.customers = Math.max(0, Math.min(limit, current + effects.customers));
+    }
     for (const employee of s.employees) {
       employee.mood = Math.max(0, Math.min(100, employee.mood + (effects.employeeMood || 0)));
       employee.energy = Math.max(0, Math.min(100, employee.energy + (effects.employeeEnergy || 0)));
@@ -149,8 +156,10 @@
     else { pendingFirstHire = true; init(); }
   }
 
-  root.ForceMajeureSystem = Object.freeze({
-    init, reset, onTick, onHire,
+  const api = Object.freeze({
+    init, reset, onTick, onHire, applyEffects,
     get pending() { return inFlight.size; }
   });
+  root.ForceMajeureSystem = api;
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);
