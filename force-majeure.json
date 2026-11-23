@@ -167,5 +167,106 @@
         }
       }
     ]
+  },
+  {
+    "id": "beta_feedback",
+    "type": "product",
+    "title": "Бета-тестеры нашли слабые места",
+    "description": "Первые пользователи прислали отзывы: часть функций непонятна, но интерес к продукту растёт.",
+    "weight": 2,
+    "conditions": {
+      "minEmployees": 1,
+      "minDay": 4
+    },
+    "choices": [
+      {
+        "id": "polish_onboarding",
+        "label": "Упростить первый запуск",
+        "effects": {
+          "money": -180,
+          "product": 4,
+          "rep": 2,
+          "customers": 10,
+          "employeeMood": 2
+        }
+      },
+      {
+        "id": "ship_quick_fix",
+        "label": "Выпустить небольшое исправление",
+        "effects": {
+          "product": 2,
+          "rep": 1,
+          "customers": 4,
+          "employeeEnergy": -2
+        }
+      }
+    ]
+  },
+  {
+    "id": "community_spotlight",
+    "type": "product",
+    "title": "Сообщество заметило ваш продукт",
+    "description": "Небольшое профильное сообщество обсуждает ваш продукт. Можно поддержать интерес или вложиться в продвижение.",
+    "weight": 1,
+    "conditions": {
+      "minEmployees": 1,
+      "minDay": 8,
+      "minRep": 5
+    },
+    "choices": [
+      {
+        "id": "join_discussion",
+        "label": "Ответить на вопросы пользователей",
+        "effects": {
+          "product": 1,
+          "rep": 4,
+          "customers": 14,
+          "employeeMood": 2
+        }
+      },
+      {
+        "id": "small_campaign",
+        "label": "Запустить скромную кампанию",
+        "effects": {
+          "money": -220,
+          "rep": 2,
+          "customers": 24
+        }
+      }
+    ]
+  },
+  {
+    "id": "competitor_launch",
+    "type": "product",
+    "title": "Конкурент выпустил похожий продукт",
+    "description": "На рынке появился конкурент. Нужно решить, чем ваша компания будет отличаться.",
+    "weight": 1,
+    "conditions": {
+      "minEmployees": 2,
+      "minDay": 15
+    },
+    "choices": [
+      {
+        "id": "differentiate",
+        "label": "Сделать ставку на уникальные функции",
+        "effects": {
+          "money": -260,
+          "product": 5,
+          "rep": 2,
+          "customers": 8,
+          "employeeEnergy": -4
+        }
+      },
+      {
+        "id": "loyalty",
+        "label": "Удержать текущих клиентов",
+        "effects": {
+          "product": 2,
+          "rep": 3,
+          "customers": 5,
+          "employeeMood": 3
+        }
+      }
+    ]
   }
 ]

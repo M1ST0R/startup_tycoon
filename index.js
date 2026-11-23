@@ -6,6 +6,7 @@ const rateLimit = require('express-rate-limit');
 const { openDb } = require('./db');
 const { makeAuth, parseUsername, validPassword } = require('./auth');
 const { normalizeState } = require('./gamestate');
+const { secureCookiesEnabled } = require('./security-config');
 
 const env = process.env.NODE_ENV || 'development';
 const cfg = {
@@ -13,7 +14,7 @@ const cfg = {
   port: Number(process.env.PORT) || 3000,
   dbPath: path.resolve(process.env.DB_PATH || path.join(__dirname, 'data', 'game.db')),
   sessionDays: Number(process.env.SESSION_DAYS) || 7,
-  secureCookies: process.env.COOKIE_SECURE ? process.env.COOKIE_SECURE === 'true' : env === 'production',
+  secureCookies: secureCookiesEnabled(env, process.env.COOKIE_SECURE),
   trustProxy: Number(process.env.TRUST_PROXY) || 0
 };
 
